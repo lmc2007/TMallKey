@@ -1,0 +1,13 @@
+# v1.0.1
+
+新增：
+- 应用内检查更新与下载安装
+
+更改：
+- README 补齐 MIT 许可证与 clone 指引
+
+其他：
+- 两阶段发布流水线（对标 yamibo-app）
+- Update README.md
+- 天猫校园宿舍 BLE 门禁「一点即开」独立 App
+- Initial commit
