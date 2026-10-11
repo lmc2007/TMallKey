@@ -70,6 +70,20 @@ fun MainScreen(
 ) {
     val locks = vm.locks
     var showImport by remember { mutableStateOf(!vm.locks.any()) }
+    val app = LocalContext.current.applicationContext as FktmApp
+
+    // 连接状态角标的数据源。连接本身由 BleLockClient 自己按超时回收
+    // （冷启动 30s 窗口 / 开锁后保活 60s / 退后台立即让出），
+    // 这里只负责把「现在是不是已经连上」画出来，让用户知道点了能不能秒开。
+    var bleReady by remember { mutableStateOf(false) }
+    var bleConnecting by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            bleReady = app.bleClient.isReady
+            bleConnecting = app.bleClient.isConnecting
+            delay(500)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -88,6 +102,11 @@ fun MainScreen(
             fontSize = 13.sp,
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
         )
+
+        if (locks.isNotEmpty() && vm.state !is UnlockState.Working) {
+            Spacer(Modifier.height(10.dp))
+            ConnectionBadge(ready = bleReady, connecting = bleConnecting)
+        }
 
         Spacer(Modifier.height(18.dp))
 
@@ -132,6 +151,15 @@ fun MainScreen(
             )
         }
 
+        Spacer(Modifier.height(18.dp))
+        HorizontalDivider()
+        Spacer(Modifier.height(10.dp))
+        Text("关于", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(8.dp))
+        AboutCard()
+        Spacer(Modifier.height(10.dp))
+        UpdateCard(repo = app.updateRepository, settings = app.updateSettings)
+
         if (vm.logText.isNotBlank()) {
             Spacer(Modifier.height(18.dp))
             HorizontalDivider()
@@ -154,18 +182,6 @@ fun MainScreen(
                 )
             }
         }
-
-        Spacer(Modifier.height(18.dp))
-        HorizontalDivider()
-        Spacer(Modifier.height(10.dp))
-        Text("关于", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(8.dp))
-        AboutCard()
-        Spacer(Modifier.height(10.dp))
-        UpdateCard(
-            repo = (LocalContext.current.applicationContext as FktmApp).updateRepository,
-            settings = (LocalContext.current.applicationContext as FktmApp).updateSettings,
-        )
 
         Spacer(Modifier.height(30.dp))
     }
@@ -215,6 +231,32 @@ private fun openInBrowser(context: Context, url: String) {
             Intent(Intent.ACTION_VIEW, Uri.parse(url))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         )
+    }
+}
+
+/**
+ * 连接状态角标。
+ *
+ * 背后的规则（见 [com.fktm.app.ble.BleLockClient]）：
+ *  · App 一进入前台就预连接，**30s 内没有开锁/读电量**就自动断开（冷启动窗口）；
+ *  · 一旦开锁，改成**开锁后保活 60s**，期间再开锁重新计时；
+ *  · 退到后台立即让出连接（息屏也算）。
+ */
+@Composable
+private fun ConnectionBadge(ready: Boolean, connecting: Boolean) {
+    val (mark, text, color) = when {
+        ready -> Triple("●", "已预连接 · 开锁免建连", MaterialTheme.colorScheme.primary)
+        connecting -> Triple("◌", "预连接中…", MaterialTheme.colorScheme.primary)
+        else -> Triple(
+            "○",
+            "未连接 · 开锁需先建连",
+            MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f),
+        )
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(mark, fontSize = 11.sp, color = color)
+        Spacer(Modifier.width(6.dp))
+        Text(text, fontSize = 11.sp, color = color)
     }
 }
 

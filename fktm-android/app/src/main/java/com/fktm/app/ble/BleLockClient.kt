@@ -71,6 +71,15 @@ class BleLockClient(private val appContext: Context) {
 
         /** 开锁后连接保活时长：期间再次开锁可直接复用（秒开），超时自动断开让出连接 */
         const val DEFAULT_IDLE_CLOSE_MS = 60_000L
+
+        /**
+         * 冷启动预连接窗口。
+         *
+         * App 一进入前台就先连上门锁（预连接），但**不无限占用**：
+         * 窗口内没有任何开锁/读电量动作就自动断开让出连接（省电、也避免占着门锁）。
+         * 一旦发生开锁，则改按 [DEFAULT_IDLE_CLOSE_MS] 保活。
+         */
+        const val COLD_START_HOLD_MS = 30_000L
     }
 
     private val adapter: BluetoothAdapter?
@@ -84,9 +93,16 @@ class BleLockClient(private val appContext: Context) {
     @Volatile private var connected = false
     private var currentAddress: String? = null
 
+    /** 是否正在建连（预连接 / 现场建连）—— 仅供 UI 展示，不参与逻辑判断。 */
+    @Volatile private var connecting = false
+
     /** 当前是否有一条可用连接（可跳过「连接 + 服务发现」直接收发）。 */
     val isReady: Boolean
         get() = connected && gatt != null && writeChar != null && notifyChar != null
+
+    /** 是否正在建连（UI 用来显示「预连接中…」）。 */
+    val isConnecting: Boolean
+        get() = connecting
 
     /** 当前连接的目标地址（null = 未连接）。 */
     val readyAddress: String?
@@ -129,7 +145,8 @@ class BleLockClient(private val appContext: Context) {
 
     /**
      * 由 MainActivity 生命周期驱动：
-     * - `true`（onStart）：进入前台，期间保持连接随时可复用；
+     * - `true`（onStart）：进入前台，**开启冷启动窗口** ——
+     *   预连接门锁，[COLD_START_HOLD_MS] 内没有开锁/读电量就自动断开；
      * - `false`（onStop）：离开前台，**立即让出门锁连接**（有任务在跑则等它收尾）。
      *
      * 息屏同样会走到 onStop，所以「前台驻留」天然被系统息屏兜底，不会无限占用门锁。
@@ -138,8 +155,9 @@ class BleLockClient(private val appContext: Context) {
         if (appForeground == foreground) return
         appForeground = foreground
         if (foreground) {
-            note("app -> foreground, hold connection")
-            cancelIdleClose()
+            // 冷启动：先连上再说，但只保活一个窗口（没动作就自动让出，见 COLD_START_HOLD_MS）。
+            note("app -> foreground, cold-start window ${COLD_START_HOLD_MS}ms")
+            scheduleIdleClose(COLD_START_HOLD_MS, "冷启动窗口")
         } else if (!isBusy) {
             note("app -> background, release connection")
             cancelIdleClose()
@@ -154,12 +172,16 @@ class BleLockClient(private val appContext: Context) {
         cancelIdleClose()
     }
 
-    /** 任务结束：**前台保留连接**（下次秒开），**后台立即让出**。 */
+    /** 任务结束：**前台按开锁后保活 60s**（期间再开锁重新计时），**后台立即让出**。 */
     fun endTask() {
         val left = synchronized(flightLock) { if (inFlight > 0) inFlight - 1 else 0 }
         if (left > 0) return
         cancelIdleClose()
-        if (appForeground) return   // 前台驻留：不设倒计时，等 onStop
+        if (appForeground) {
+            note("task done -> hold connection ${DEFAULT_IDLE_CLOSE_MS}ms")
+            scheduleIdleClose(DEFAULT_IDLE_CLOSE_MS, "开锁后保活")
+            return
+        }
         if (isReady) note("task done & background -> release connection")
         close()
     }
@@ -182,18 +204,25 @@ class BleLockClient(private val appContext: Context) {
     // ==================================================================
 
     /**
-     * 空闲 [idleMs] 后自动断开。
+     * 空闲 [idleMs] 后自动断开。两个使用场景：
+     *  · 冷启动窗口（[COLD_START_HOLD_MS]）—— 进前台先连，没动作就放；
+     *  · 开锁后保活（[DEFAULT_IDLE_CLOSE_MS]）—— 开锁完留着，方便秒开第二次。
      *
-     * 注：方案 A（前台驻留）落地后，**连接回收已改由前台状态驱动**
-     * （`setForeground(false)` / `endTask()`），本方法不再是主路径，
-     * 仅保留给「确实需要定时兜底」的场景使用。
+     * [reason] 只用于时序日志，方便在界面上区分是哪条规则触发的断开。
+     *
+     * 注意：预连接刚发起时连接**还没建立**（`isReady` 为 false），
+     * 所以这里先等它连上（或等到窗口到期）再倒计时 —— 否则会漏判成
+     * 「窗口到期时还没连上 → 什么都不做」，导致连上之后一直不断开。
      */
-    fun scheduleIdleClose(idleMs: Long = DEFAULT_IDLE_CLOSE_MS) {
+    fun scheduleIdleClose(idleMs: Long = DEFAULT_IDLE_CLOSE_MS, reason: String = "idle") {
         idleCloseJob?.cancel()
         idleCloseJob = keepAliveScope.launch {
-            delay(idleMs)
-            if (isReady) {
-                note("idle ${idleMs}ms -> auto disconnect")
+            val deadline = SystemClock.elapsedRealtime() + idleMs
+            while (!isReady && !isBusy && SystemClock.elapsedRealtime() < deadline) delay(200)
+            val rest = deadline - SystemClock.elapsedRealtime()
+            if (rest > 0) delay(rest)
+            if (isReady && !isBusy) {
+                note("$reason ${idleMs}ms 到期 -> auto disconnect")
                 close()
             }
         }
@@ -321,10 +350,13 @@ class BleLockClient(private val appContext: Context) {
             }
             if (isReady) note("existing connection is for ${currentAddress}, reconnecting")
             close()
+            connecting = true
             connect(address, connectTimeoutMs, scanTimeoutMs)
         } catch (e: CancellationException) {
             close()
             throw e
+        } finally {
+            connecting = false
         }
     }
 
