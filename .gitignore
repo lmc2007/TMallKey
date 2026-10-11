@@ -1,0 +1,71 @@
+# =====================================================================
+#  TMKey —— 入库黑名单
+#  第一原则：activationKey 就是本宿舍门的钥匙。
+#  任何人拿到 (activationKey + BLE 地址) 就能开门，且不需要联网。
+#  下面每一行都是"加进来会出事"的东西，不要为了让仓库好看而放开。
+# =====================================================================
+
+# ---------- 1. 钥匙本体 / 凭证 ----------
+fktm/credentials.json
+fktm/credentials*.json
+*.credentials
+*.credential
+
+# ---------- 2. 取证日志：含 randomNumber + actualAesKey ----------
+#  注意：activationKey = randomNumber XOR actualAesKey，
+#  这两个数同时出现，等于把钥匙明文写进仓库。
+fktm/*capture*.txt
+fktm/p0_capture.txt
+fktm/p0_capture_v1.txt
+fktm/p2_real_capture.txt
+fktm/synthetic_p0_log.txt
+fktm/*_log.txt
+
+# 其它位置的抓包/日志产物
+*.pcap
+*.btsnoop
+*_logcat*.txt
+logcat*.txt
+
+# ---------- 3. 第三方 App 与反编译产物（版权风险 + 体积巨大）----------
+#  tools/ 349MB、extracted/ 88MB、天猫校园.apk 113MB —— 都不是我们的东西
+天猫校园.apk
+*.apk
+extracted/
+tools/
+jadx-out*/
+
+# ---------- 4. 本机环境 / 构建产物 ----------
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+local.properties
+fktm-android/local.properties
+*.iml
+.idea/
+captures/
+
+# ---------- 5. 签名文件与口令 ----------
+*.jks
+*.keystore
+keystore.properties
+release.keystore
+signing.properties
+
+# ---------- 6. Python ----------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ---------- 7. 工作区记忆 / 编辑器 / 系统 ----------
+#  .workbuddy 里含真机 MAC、钥匙片段等过程记录，属于本地笔记，不入库
+.workbuddy/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*tmp/

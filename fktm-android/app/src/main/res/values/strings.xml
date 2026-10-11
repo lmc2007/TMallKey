@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">fkTM</string>
+    <string name="tile_label">一键开锁</string>
+    <string name="shortcut_unlock_short">开锁</string>
+    <string name="shortcut_unlock_long">一键打开宿舍门</string>
+    <string name="grab_notif_channel">凭证抓取</string>
+    <string name="grab_notif_title">正在抓取门锁钥匙</string>
+    <string name="grab_notif_text">请到天猫校园在门口开一次锁，开完回到 fkTM 即会自动填入</string>
+</resources>

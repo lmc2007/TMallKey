@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_tile_unlock"
+        android:shortcutId="unlock"
+        android:shortcutLongLabel="@string/shortcut_unlock_long"
+        android:shortcutShortLabel="@string/shortcut_unlock_short">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="fktm://unlock"
+            android:targetClass="com.fktm.app.MainActivity"
+            android:targetPackage="com.fktm.app" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+</shortcuts>

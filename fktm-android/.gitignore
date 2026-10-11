@@ -1,0 +1,22 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# 本机 SDK 路径（含用户目录，不提交）
+local.properties
+
+# 签名文件与口令 —— 绝不入库
+*.jks
+*.keystore
+keystore.properties
+release.keystore
+
+# IDE
+.idea/
+*.iml
+captures/
+
+# 凭证：activationKey 就是钥匙，任何时候都不得入库/入云
+credentials*.json
+*.credentials
