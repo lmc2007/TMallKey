@@ -1,6 +1,9 @@
 package com.fktm.app.ui
 
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -39,16 +42,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fktm.app.FktmApp
+import com.fktm.app.R
 import com.fktm.app.credential.LockCredential
 import com.fktm.app.credential.LogcatParser
 import com.fktm.app.credential.GrabForegroundService
 import com.fktm.app.credential.ShizukuLogcatGrabber
+import com.fktm.app.update.UpdateSources
 import com.fktm.app.vm.UnlockState
 import com.fktm.app.vm.UnlockViewModel
 import kotlinx.coroutines.delay
@@ -57,7 +63,11 @@ import org.json.JSONObject
 import rikka.shizuku.Shizuku
 
 @Composable
-fun MainScreen(vm: UnlockViewModel, onRequestPermissions: () -> Unit) {
+fun MainScreen(
+    vm: UnlockViewModel,
+    onRequestPermissions: () -> Unit,
+    onEnsureNotificationPermission: () -> Unit,
+) {
     val locks = vm.locks
     var showImport by remember { mutableStateOf(!vm.locks.any()) }
 
@@ -67,7 +77,12 @@ fun MainScreen(vm: UnlockViewModel, onRequestPermissions: () -> Unit) {
             .verticalScroll(rememberScrollState())
             .padding(20.dp),
     ) {
-        Text("fkTM", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        Text(
+            stringResource(R.string.app_name),
+            fontSize = 30.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+        )
         Text(
             "一点即开 · 不依赖天猫校园",
             fontSize = 13.sp,
@@ -113,6 +128,7 @@ fun MainScreen(vm: UnlockViewModel, onRequestPermissions: () -> Unit) {
                 },
                 showCancel = locks.isNotEmpty(),
                 onCancel = { showImport = false },
+                onEnsureNotificationPermission = onEnsureNotificationPermission,
             )
         }
 
@@ -144,12 +160,61 @@ fun MainScreen(vm: UnlockViewModel, onRequestPermissions: () -> Unit) {
         Spacer(Modifier.height(10.dp))
         Text("关于", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(8.dp))
+        AboutCard()
+        Spacer(Modifier.height(10.dp))
         UpdateCard(
             repo = (LocalContext.current.applicationContext as FktmApp).updateRepository,
             settings = (LocalContext.current.applicationContext as FktmApp).updateSettings,
         )
 
         Spacer(Modifier.height(30.dp))
+    }
+}
+
+/**
+ * 「关于」卡片：应用名 + 一句话简介 + 跳转开源仓库。
+ *
+ * 仓库地址统一从 [UpdateSources.REPO_URL] 取，避免和「检查更新」的源各写一份、改的时候漏掉。
+ */
+@Composable
+private fun AboutCard() {
+    val context = LocalContext.current
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Text(
+                stringResource(R.string.app_name),
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "协议级复刻 · 开锁全程不联网 · MIT 开源\n" +
+                    "不注入、不 hook 天猫校园，仅复刻 BLE 开锁协议。",
+                fontSize = 11.sp,
+                lineHeight = 16.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+            )
+            Spacer(Modifier.height(10.dp))
+            OutlinedButton(
+                onClick = { openInBrowser(context, UpdateSources.REPO_URL) },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("GitHub 开源仓库", fontSize = 13.sp) }
+        }
+    }
+}
+
+/** 用系统浏览器打开链接。失败（没有浏览器等）就静默忽略，不打断主界面。 */
+private fun openInBrowser(context: Context, url: String) {
+    runCatching {
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
     }
 }
 
@@ -286,7 +351,10 @@ private sealed interface GrabState {
  * 用户只需要在弹窗里授权一次，然后照着提示去天猫校园点一次开锁。
  */
 @Composable
-private fun AutoGrabSection(onHit: (LogcatParser.Hit) -> Unit) {
+private fun AutoGrabSection(
+    onHit: (LogcatParser.Hit) -> Unit,
+    onEnsureNotificationPermission: () -> Unit,
+) {
     var state by remember { mutableStateOf<GrabState>(GrabState.Idle) }
 
     /** 是否已经通过结果文件填入过 —— 防止后到的 binder「失败」把已到手的成功盖掉。 */
@@ -321,7 +389,7 @@ private fun AutoGrabSection(onHit: (LogcatParser.Hit) -> Unit) {
                 state = if (grant == PackageManager.PERMISSION_GRANTED) {
                     GrabState.Info("已授权，再点一次「开始抓取」")
                 } else {
-                    GrabState.Error("授权被拒绝 —— 需要在 Shizuku 里允许 fkTM")
+                    GrabState.Error("授权被拒绝 —— 需要在 Shizuku 里允许 TmallKey")
                 }
             }
         }
@@ -349,9 +417,13 @@ private fun AutoGrabSection(onHit: (LogcatParser.Hit) -> Unit) {
         applied = false
         state = GrabState.Running
         scope.launch {
-            // 抓取要求用户切到天猫校园开锁 → fkTM 全程在后台，而 ColorOS 会冻结后台进程。
+            // 抓取要求用户切到天猫校园开锁 → TmallKey 全程在后台，而 ColorOS 会冻结后台进程。
             // 起前台服务提高优先级（能拖住一些时间），但**不能指望它挡住冻结** ——
             // 真正的保命机制是「服务端命中即落盘 + 界面轮询取件」（见上方 LaunchedEffect）。
+            //
+            // 前台服务在 Android 13+ 要有通知权限才能把常驻通知显示出来，
+            // 这里再确认一次：缺权限就顺手弹一次申请，用户拒绝也不影响抓取本身。
+            onEnsureNotificationPermission()
             GrabForegroundService.start(context)
             try {
                 state = when (val r = ShizukuLogcatGrabber.capture(context)) {
@@ -434,6 +506,7 @@ private fun ImportPanel(
     onImport: (LockCredential) -> Unit,
     showCancel: Boolean,
     onCancel: () -> Unit,
+    onEnsureNotificationPermission: () -> Unit,
 ) {
     var name by remember { mutableStateOf("宿舍门") }
     var address by remember { mutableStateOf("") }
@@ -457,11 +530,14 @@ private fun ImportPanel(
             )
             Spacer(Modifier.height(12.dp))
 
-            AutoGrabSection(onHit = { hit ->
-                key = hit.activationKey
-                hit.macAddress?.let { address = it }
-                error = null
-            })
+            AutoGrabSection(
+                onHit = { hit ->
+                    key = hit.activationKey
+                    hit.macAddress?.let { address = it }
+                    error = null
+                },
+                onEnsureNotificationPermission = onEnsureNotificationPermission,
+            )
 
             Spacer(Modifier.height(14.dp))
             HorizontalDivider()

@@ -11,6 +11,9 @@ package com.fktm.app.update
  */
 object UpdateSources {
 
+    /** 开源仓库主页。「关于」区块的「GitHub 仓库」按钮跳转到这里。 */
+    const val REPO_URL = "https://github.com/lmc2007/TMallKey"
+
     /** 清单地址：仓库主分支 `update/` 目录。改了仓库名或分支要同步这里。 */
     const val MANIFEST_URL =
         "https://raw.githubusercontent.com/lmc2007/TMallKey/main/update/stable.json"
