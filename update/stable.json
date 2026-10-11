@@ -1,0 +1,8 @@
+{
+  "channel": "stable",
+  "versionName": "1.0.0",
+  "versionCode": 1,
+  "isReady": false,
+  "releaseNotes": "首个版本：多镜像回退的更新检查 + 应用内下载安装。",
+  "assets": []
+}

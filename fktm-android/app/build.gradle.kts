@@ -1,8 +1,19 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+// release 签名从 keystore.properties 读取（该文件 + .jks 都在 .gitignore 里，不入库）。
+// 文件缺失时（如 CI 或新克隆）不报错，只是产出未签名 APK。
+val keystorePropsFile = rootProject.file("keystore.properties")
+val keystoreProps = Properties().apply {
+    if (keystorePropsFile.exists()) keystorePropsFile.inputStream().use { load(it) }
+}
+val hasReleaseSigning = keystorePropsFile.exists() &&
+        !keystoreProps.getProperty("storeFile").isNullOrBlank()
 
 android {
     namespace = "com.fktm.app"
@@ -12,9 +23,21 @@ android {
         applicationId = "com.fktm.app"
         minSdk = 26
         targetSdk = 36
+        // 版本号唯一来源：update/stable.json 里的 versionCode 必须与这里对齐才能正确判新旧
         versionCode = 1
         versionName = "1.0.0"
         vectorDrawables { useSupportLibrary = true }
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
@@ -24,6 +47,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // 自更新要求新旧 APK 同签名，否则覆盖安装会被系统拒绝
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
@@ -74,4 +101,7 @@ dependencies {
 
     // JVM 单测：黄金向量回归
     testImplementation("junit:junit:4.13.2")
+    // 单测里跑不了 android.jar 的 org.json 桩实现（会抛 "not mocked"），
+    // 换成官方 JVM 实现，清单解析才能真正被断言。
+    testImplementation("org.json:json:20240303")
 }

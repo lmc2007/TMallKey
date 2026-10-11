@@ -44,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.fktm.app.FktmApp
 import com.fktm.app.credential.LockCredential
 import com.fktm.app.credential.LogcatParser
 import com.fktm.app.credential.GrabForegroundService
@@ -137,6 +138,16 @@ fun MainScreen(vm: UnlockViewModel, onRequestPermissions: () -> Unit) {
                 )
             }
         }
+
+        Spacer(Modifier.height(18.dp))
+        HorizontalDivider()
+        Spacer(Modifier.height(10.dp))
+        Text("关于", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(8.dp))
+        UpdateCard(
+            repo = (LocalContext.current.applicationContext as FktmApp).updateRepository,
+            settings = (LocalContext.current.applicationContext as FktmApp).updateSettings,
+        )
 
         Spacer(Modifier.height(30.dp))
     }

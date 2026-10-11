@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FileProvider 路径映射。
+  「下载并安装」把 APK 落在 cache/updates/，再通过 content:// 交给系统安装器 —— 
+  Android 7.0 起不允许直接以 file:// 形式暴露文件，必须走 FileProvider。
+-->
+<paths>
+    <cache-path name="updates" path="updates/" />
+</paths>
