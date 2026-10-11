@@ -7,11 +7,7 @@
 不打开天猫校园 · 不等开屏广告 · 不联网 · 点一下，门就开
 
 [![Platform](https://img.shields.io/badge/Android-8.0%2B%20(API%2026)-3DDC84?logo=android&logoColor=white)](#)
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.0.21-7F52FF?logo=kotlin&logoColor=white)](#)
-[![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)](#)
-[![Tests](https://img.shields.io/badge/tests-97%20passed-2ea44f)](#测试)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Network](https://img.shields.io/badge/network-none-lightgrey)](#安全与隐私)
 
 </div>
 
@@ -21,7 +17,6 @@ TMKey 是一个**协议级复刻**项目：把天猫校园 App 里的宿舍 BLE 
 用一份不依赖原 App 的独立实现重写，并封装成一个开锁只需一次点击的 Android 应用。
 
 整个开锁过程**不联网**，唯一凭证是每把锁独有的 `activationKey`。
-本仓库**不含任何真实凭证**。
 
 <details>
 <summary><b>English abstract</b></summary>
@@ -59,7 +54,6 @@ TMKey 是一个**协议级复刻**项目：把天猫校园 App 里的宿舍 BLE 
 - **一次点击** —— 常驻连接 + 预连接策略，二次开锁稳定在亚秒级。
 - **不依赖原 App** —— 不 hook、不注入、不读取天猫校园进程，协议按字节复刻。
 - **凭证硬件级加密** —— `activationKey` 由 Android Keystore 的 AES-256-GCM 加密后落盘，密钥不可导出、随卸载销毁。
-- **日志不泄漏密钥** —— 运行期刻意不打印派生的 `actualAesKey`（它与 `randomNumber` 一起出现即可反解出钥匙）。
 - **可离线验证** —— 内置门锁仿真器，没有真机也能跑通完整开锁流程与协议回归。
 - **双语言互为回归** —— 协议层同时有 Python 与 Kotlin 两份实现，黄金向量逐字节对齐。
 
@@ -139,7 +133,6 @@ TMallKey/
         └── ui/                   Compose 界面
 ```
 
-> Kotlin 包名沿用项目早期的 `com.fktm.app`，尚未与仓库名统一。
 
 ---
 
@@ -189,8 +182,7 @@ cd fktm-android
 
 协议层的任何改动，都必须让上述四套同时保持全绿。
 
-> 测试中使用的凭证均为**假值**（`DEADBEEF…`）。
-> 断言同样是逐字节锁定，只是向量由假钥匙合成，而非取自真机报文 —— 原因见下节。
+
 
 ---
 
