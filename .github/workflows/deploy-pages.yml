@@ -1,0 +1,64 @@
+name: Deploy Landing Page (reusable)
+
+# 落地页部署的核心逻辑 —— 抽成可复用工作流，供两条路径调用：
+#   1. pages.yml     —— docs/ 或 update/stable.json 被 push 时（以及手动触发）
+#   2. release.yml   —— 发版流程末尾的 landing job 显式调用
+#
+# 为什么发版那条路要「显式调用」而不是等事件：
+#   原先这里靠 pages.yml 的 `on: workflow_run: ["Release APK"]`。但 2026-10-11 发布
+#   v1.0.4 时实测：Release APK 跑完（success）后 GitHub **没有创建任何 workflow_run
+#   运行** —— 该 workflow 的历史运行只有 push 事件那两条。触发链没送达，页面就停在
+#   上一个版本。所以改成「发版流程最后一个 job 直接 uses: 本文件」：
+#   同一次 workflow run 内串联，不依赖任何事件投递，行为确定、可预测。
+#
+# 注意：部署的是「站点快照」。页面读的是部署时拷进站点的 docs/stable.json，
+# 所以发版后必须重新部署一次，页面上的版本号/体积/sha256 才会变。
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # 显式检出 main 上的最新提交 —— 发版流程刚刚才把新的 update/stable.json
+          # 推上去，要的是那一份，而不是触发时那个旧提交。
+          ref: main
+
+      - name: 把最新发布清单同步进站点（同源读取，免得跨域或依赖镜像）
+        run: |
+          set -euo pipefail
+          if [ ! -f update/stable.json ]; then
+            echo "::error::找不到 update/stable.json，落地页会退化成「下载最新版」链接"
+            exit 1
+          fi
+          cp update/stable.json docs/stable.json
+          echo "已同步 update/stable.json -> docs/stable.json"
+          grep -E '"versionName"|"versionCode"|"isReady"' docs/stable.json || true
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

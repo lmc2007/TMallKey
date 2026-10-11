@@ -348,3 +348,27 @@ jobs:
             echo "| 大小 | ${SIZE:-?} 字节 |"
             echo "| dry-run | ${{ inputs.dry_run }} |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # 发版完成后，把落地页重新部署一次。
+  #
+  # 落地页上的版本号 / 体积 / sha256 / 下载地址全都来自 update/stable.json，而那份清单
+  # 是上面 release job 的最后一步才写进去的 —— 不重新部署，页面就还停在上一个版本。
+  #
+  # 这里**直接调用**部署工作流，而不是等 pages.yml 的 workflow_run 事件：
+  # 那条例刚刚实测失效（v1.0.4 发布后 GitHub 没创建任何 workflow_run 运行）。
+  # 同一 run 内串联不依赖事件投递，确定性高得多。
+  #
+  # 注意权限：这里声明的是 job 级 permissions，会覆盖顶层的 contents: write。
+  # 部署只需要读代码 + 写 Pages，所以给最小集合。
+  landing:
+    needs: release
+    if: ${{ !inputs.dry_run }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    # 与 pages.yml 共用同一个并发组：两个入口不会同时部署，互相排队而不是打架。
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    uses: ./.github/workflows/deploy-pages.yml
