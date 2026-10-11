@@ -2,7 +2,16 @@
   "channel": "stable",
   "versionName": "1.0.5",
   "versionCode": 6,
-  "isReady": false,
+  "isReady": true,
   "releaseNotes": "发版后改用「显式调用」部署落地页（workflow_run 事件实测不触发）",
-  "assets": []
+  "releaseUrl": "https://github.com/lmc2007/TMallKey/releases/tag/v1.0.5",
+  "assets": [
+    {
+      "type": "universal-apk",
+      "platform": "android",
+      "url": "https://github.com/lmc2007/TMallKey/releases/download/v1.0.5/TMKey-1.0.5.apk",
+      "sha256": "a5d5dca007608a0d8a5570dd12ecd0c15ffa2828d2a379e4e710ca63adc91e39",
+      "size": 1450802
+    }
+  ]
 }
