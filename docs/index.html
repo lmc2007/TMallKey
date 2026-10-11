@@ -155,6 +155,39 @@ h2{font-size:clamp(22px,3vw,29px); margin:9px 0 0; font-weight:700; letter-spaci
 .hint{margin-top:20px; padding:14px 16px; border-radius:12px; background:rgba(224,168,92,.08); border:1px solid rgba(224,168,92,.22); font-size:12.5px; color:#D9C08C}
 .hint b{color:var(--amber)}
 
+/* ---------- tutorial ---------- */
+code{background:var(--surface-2); border:1px solid var(--border); border-radius:5px; padding:1px 6px; font-size:12.5px; color:#CFE9E1}
+.tbl-wrap{overflow-x:auto; margin-top:16px}
+.tbl{width:100%; border-collapse:collapse; font-size:13px}
+.tbl th,.tbl td{text-align:left; padding:10px 12px; border-bottom:1px solid var(--border); vertical-align:top}
+.tbl th{color:var(--dim); font-weight:500; font-size:12px}
+.tbl td{color:var(--muted)}
+.tbl td b{color:var(--text)}
+.tbl tr:last-child th,.tbl tr:last-child td{border-bottom:0}
+@media(max-width:520px){.tbl th,.tbl td{padding:9px 8px; font-size:12.5px}}
+.note{margin-top:16px; padding:14px 16px; border-radius:12px; background:var(--teal-soft); border:1px solid rgba(77,208,177,.24); font-size:13px; color:#B6D8CF; line-height:1.7}
+.note b{color:var(--teal)}
+.tut h3{font-size:17px; margin:40px 0 0; font-weight:600; padding-top:22px; border-top:1px solid var(--border)}
+.tut h3:first-of-type{border-top:0; padding-top:0}
+.tut h4{font-size:14px; margin:24px 0 0; font-weight:600}
+.tut p{margin:12px 0 0; font-size:13.5px; color:var(--muted)}
+.tut ul,.tut ol{margin:12px 0 0; padding-left:20px; font-size:13.5px; color:var(--muted)}
+.tut li{margin:6px 0}
+.tut b{color:var(--text)}
+pre{margin:12px 0 0; padding:14px 16px; background:#0B0F12; border:1px solid var(--border); border-radius:12px; overflow-x:auto; font-size:12.5px; line-height:1.7}
+pre code{background:none; border:0; padding:0; color:#C9E4DB; white-space:pre}
+@media(max-width:520px){pre{font-size:11.5px; padding:12px 14px}}
+.tabs{position:relative; margin-top:20px}
+.tabs > input{position:absolute; width:1px; height:1px; opacity:0; pointer-events:none}
+.tab-bar{display:flex; gap:6px; flex-wrap:wrap; border-bottom:1px solid var(--border)}
+.tab-bar label{cursor:pointer; font-size:13.5px; font-weight:500; color:var(--muted); padding:10px 16px; border:1px solid transparent; border-bottom:0; border-radius:10px 10px 0 0; margin-bottom:-1px}
+.tab-bar label:hover{color:var(--text)}
+#tab-phone:checked ~ .tab-bar label[for="tab-phone"],
+#tab-pc:checked ~ .tab-bar label[for="tab-pc"]{background:var(--surface); border-color:var(--border); color:var(--teal)}
+.tab-panel{display:none; padding-top:20px}
+#tab-phone:checked ~ .panel-phone,
+#tab-pc:checked ~ .panel-pc{display:block}
+
 /* ---------- faq ---------- */
 details{background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:0 18px; margin-bottom:10px}
 details[open]{border-color:#333D47}
@@ -184,6 +217,7 @@ footer{border-top:1px solid var(--border); padding:36px 0 46px; font-size:13px; 
     <nav class="nav-links">
       <a href="#features">特性</a>
       <a href="#usage">使用</a>
+      <a href="#tutorial">教程</a>
       <a href="#faq">常见问题</a>
       <a href="https://github.com/lmc2007/TMallKey" rel="noopener">GitHub</a>
       <a class="btn btn-primary btn-sm nav-cta" href="#download">下载</a>
@@ -277,7 +311,7 @@ footer{border-top:1px solid var(--border); padding:36px 0 46px; font-size:13px; 
       <div class="sec-head">
         <div class="sec-idx">GET STARTED</div>
         <h2>三步开门</h2>
-        <p class="sec-desc">唯一的门槛是「拿凭证」：需要让天猫校园自己开一次锁，把 activationKey 暴露在日志里。</p>
+        <p class="sec-desc">唯一的门槛是「拿凭证」：需要让天猫校园自己开一次锁，把 activationKey 暴露在日志里。逐步操作见下方 <a href="#tutorial">完整使用教程</a>。</p>
       </div>
       <div class="steps">
         <div class="step">
@@ -341,6 +375,198 @@ footer{border-top:1px solid var(--border); padding:36px 0 46px; font-size:13px; 
         <div class="hint">
           <b>安装提示：</b>首次安装需要在系统里允许「安装未知应用」；如果已装过旧版，可直接覆盖安装（签名一致），
           数据与凭证都会保留。<b>不要</b>用不同签名的包覆盖，那会装不上。
+        </div>
+      </div>
+    </section>
+
+    <section id="tutorial">
+      <div class="sec-head">
+        <div class="sec-idx">TUTORIAL</div>
+        <h2>完整使用教程</h2>
+        <p class="sec-desc">全程<b>不需要 root</b>。你需要的只有三样东西：一部 Android 手机、一扇<b>你本人有权开启</b>的门锁，以及一个能正常开锁的天猫校园 App。</p>
+      </div>
+
+      <div class="tut">
+        <div class="tbl-wrap">
+          <table class="tbl">
+            <tbody>
+              <tr><th>手机</th><td>Android 8.0（API 26）以上，具备蓝牙</td></tr>
+              <tr><th>天猫校园</th><td>已登录、已绑定该门锁，<b>能正常开锁</b></td></tr>
+              <tr><th>TmallKey</th><td>从本页上方下载 APK 安装，或去 <a href="https://github.com/lmc2007/TMallKey/releases" rel="noopener">Releases</a></td></tr>
+              <tr><th>Shizuku</th><td>只有「方式一」需要，见下文</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="note">
+          <b>凭证是两样东西</b> —— ① <code class="mono">activationKey</code>：32 位十六进制，等价于这把锁的钥匙；
+          ② 门锁的 BLE 地址：形如 <code class="mono">AA:BB:CC:DD:EE:FF</code>。
+        </div>
+
+        <h3>第 1 步 · 拿到凭证</h3>
+        <p>钥匙是服务端按门下发的，只有天猫校园知道、也只会下发给它。所以要「拿」到钥匙，就得让它自己开一次锁，同时把过程记下来。两条路任选其一。</p>
+
+        <div class="tabs">
+          <input type="radio" name="grab" id="tab-phone" checked>
+          <input type="radio" name="grab" id="tab-pc">
+          <div class="tab-bar">
+            <label for="tab-phone">方式一 · 手机 App 抓取</label>
+            <label for="tab-pc">方式二 · 电脑 adb 抓取</label>
+          </div>
+
+          <div class="tab-panel panel-phone">
+            <p><b>不需要电脑。</b>（ColorOS 16 中文语言下关闭了「禁止权限监控」，需要先把系统语言切成英文，不推荐）</p>
+
+            <h4>① 装好 Shizuku 并让它运行起来</h4>
+            <p>从 <a href="https://shizuku.rikka.app/" rel="noopener">Shizuku 官网</a>或 <a href="https://github.com/RikkaApps/Shizuku/releases" rel="noopener">GitHub Releases</a> 安装 Shizuku，再按你的设备情况启动它：</p>
+            <ul>
+              <li><b>无线调试（免 root，Android 11+）</b>—— 推荐：打开「开发者选项」→「无线调试」→ 点「使用配对码配对设备」记下 6 位配对码，回到 Shizuku 点「通过无线调试启动」，按通知栏提示填入配对码。（不会打开开发者模式可以搜索教程）</li>
+              <li><b>Root</b>—— 若设备已 root，直接在 Shizuku 里点「通过 root 启动」。</li>
+            </ul>
+            <p>Shizuku 首页显示「正在运行」才算成功。<b>重启手机后 Shizuku 会停止，需要重新启动一次。</b></p>
+
+            <h4>② 在 TmallKey 里开始抓取</h4>
+            <ol>
+              <li>安装并打开 TmallKey；</li>
+              <li>点「<b>+ 添加门锁凭证</b>」，面板顶部就是「<b>自动抓取钥匙站</b>」；</li>
+              <li>点「<b>开始抓取</b>」；</li>
+              <li>第一次会弹出 Shizuku 授权框 —— 勾选「始终允许」并确定；</li>
+              <li>授权后<b>再点一次「开始抓取」</b>。</li>
+            </ol>
+            <p>此时界面会显示「正在后台监听日志」，最长监听 <b>4 分钟</b>，命中会立刻结束。</p>
+
+            <h4>③ 去开一次门</h4>
+            <ol>
+              <li>保持 TmallKey 在后台（<b>别从最近任务里划掉它</b>）；</li>
+              <li>切到天猫校园，走到门附近；</li>
+              <li>正常点一次「开锁」，等门真的打开。</li>
+            </ol>
+
+            <h4>④ 回到 TmallKey，保存</h4>
+            <p>切回 TmallKey，表单会自动填入，确认后点「<b>保存</b>」。</p>
+            <div class="note">
+              抓取中切走时 App 会被系统冻结，这是正常的。TmallKey 在服务端做了「命中即落盘」——
+              只要门开过一次，回到 App 就会立刻取回结果，界面短暂停在「抓取中」不用管。
+            </div>
+          </div>
+
+          <div class="tab-panel panel-pc">
+            <p><b>适合没装 Shizuku、或手机端一直抓不到的情况。</b></p>
+
+            <h4>① 准备</h4>
+            <ol>
+              <li>手机打开「开发者选项」→「USB 调试」；</li>
+              <li>电脑装好 <a href="https://developer.android.com/tools/releases/platform-tools" rel="noopener">platform-tools</a>（即 adb）；</li>
+              <li>数据线连上电脑，执行 <code class="mono">adb devices</code>，手机上确认「允许 USB 调试」—— 能看到设备序列号即可。</li>
+            </ol>
+
+            <h4>② 开始抓取</h4>
+            <p>下载仓库里的 <code class="mono">fktm/p0_capture.bat</code>，Windows 直接双击即可（它会自动清空日志缓冲、开始抓取，结束后自动跑校验）。其他平台手动执行下面两条：</p>
+            <pre><code>adb logcat -c
+adb logcat -v time \
+  VocLockHelperV2:V VocLockHelper:V VocLockJsBridge:V VocUnlockBridge:V \
+  BluetoothHelper:V VocLockManager:V VocLockSession:V VocLockBridge:V \
+  ZMUnlockBridge:V VocStatistics:V VocLogger:V Logger:V TLog:V \
+  '*:S' &gt; p0_capture.txt</code></pre>
+
+            <h4>③ 去开一次门</h4>
+            <p>保持数据线连接（或用 <code class="mono">adb tcpip</code> 走无线），走到门口用天猫校园点一次开锁，等门打开。</p>
+
+            <h4>④ 停止抓取，读出凭证</h4>
+            <p>回到电脑按 <code class="mono">Ctrl+C</code> 停止抓取。此时 <code class="mono">fktm/credentials.json</code> 就是 TmallKey 可直接识别的 JSON，可以进入下一步。也可以手动跑一遍校验：</p>
+            <pre><code>cd fktm
+pip install pycryptodome
+python cli.py verify --log p0_capture.txt</code></pre>
+            <p>输出里直接就有你要的两项：</p>
+            <pre><code>activationKey : 0123456789ABCDEF0123456789ABCDEF
+macAddress    : AA:BB:CC:DD:EE:FF</code></pre>
+            <div class="note">
+              <b>日志里没打印 activationKey 也能拿到。</b>密钥派生是可逆的 ——
+              <code class="mono">actualAesKey = randomNumber XOR activationKey</code>，而
+              <code class="mono">randomNumber</code>（0D 响应明文）和 <code class="mono">actualAesKey</code> 日志里都有。
+              <code class="mono">logparse.py</code> 会自动反解，并且要求多组独立会话解出同一个值才采信，解不一致会拒绝下结论。
+            </div>
+          </div>
+        </div>
+
+        <h4>两种方式怎么选</h4>
+        <div class="tbl-wrap">
+          <table class="tbl">
+            <thead><tr><th></th><th>方式一 · 手机 App</th><th>方式二 · 电脑 adb</th></tr></thead>
+            <tbody>
+              <tr><th>需要电脑</th><td>否</td><td>是</td></tr>
+              <tr><th>需要 root</th><td>否</td><td>否</td></tr>
+              <tr><th>需要 Shizuku</th><td><b>是</b>（并保持运行）</td><td>否</td></tr>
+              <tr><th>主要风险</th><td>系统后台冻结导致结果延迟显示或抓取不到</td><td>安装驱动、网络访问较慢</td></tr>
+              <tr><th>适用</th><td>会用 Shizuku</td><td>排障、或不想装 Shizuku</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>第 2 步 · 导入凭证</h3>
+        <p>在 TmallKey 首页点「<b>+ 添加门锁凭证</b>」，有三种填法：</p>
+        <ul>
+          <li><b>手工填写</b>—— 填「名称」（默认「宿舍门」）、「门锁地址」、<code class="mono">activationKey</code>，然后保存。地址必须是 <code class="mono">AA:BB:CC:DD:EE:FF</code> 格式，钥匙必须是 32 位十六进制。</li>
+          <li><b>粘贴 JSON</b>—— 直接粘贴 <code class="mono">fktm/credentials.json</code> 的整段内容，点「解析并导入」。同时支持带 <code class="mono">locks</code> 数组的完整结构和单个凭证对象两种形式：</li>
+        </ul>
+        <pre><code>{
+  "locks": [
+    {
+      "name": "宿舍门",
+      "address": "AA:BB:CC:DD:EE:FF",
+      "activationKey": "0123456789ABCDEF0123456789ABCDEF"
+    }
+  ]
+}</code></pre>
+        <ul>
+          <li><b>自动抓取</b>—— 见上面「方式一」，抓到后会自动填进表单，再点「保存」。</li>
+        </ul>
+        <p>凭证保存在本机 Android Keystore 的加密区。</p>
+
+        <h3>第 3 步 · 开锁</h3>
+        <p>回到首页，点卡片中间那个大按钮即可。首次会申请蓝牙权限，允许一次即可。</p>
+        <ul>
+          <li>冷启动首次开锁约 <b>1.2 秒</b>，60 秒内再次开锁约 <b>0.4 秒</b>；</li>
+          <li>页面底部的「收发时序」会逐条显示收发字节，方便确认每一步都通了；</li>
+          <li>「查电量」按钮可以顺便读门锁电量。</li>
+        </ul>
+        <p>连接<b>不是常驻</b>的，按两条计时规则自动回收 —— <b>进入前台先自动预连接，30 秒内没有开锁就断开</b>；<b>一旦开锁则保活 60 秒</b>，期间再开锁会重新计时；退到后台（含息屏）立即让出。这是有意为之：把门锁的并发连接让给真正要用的人，下次开锁会自动重新连上。首页顶部的状态角标（● 已预连接 / ◌ 预连接中 / ○ 未连接）可以直接看到当前状态。</p>
+
+        <h3>抓不到凭证？按这个顺序排查</h3>
+        <p><b>先确认一件事：天猫校园这次开锁到底有没有成功？</b>门必须真的开了才有日志可抓，先别急着怀疑 TmallKey。</p>
+
+        <h4>方式一（手机）</h4>
+        <div class="tbl-wrap">
+          <table class="tbl">
+            <thead><tr><th>现象</th><th>检查</th></tr></thead>
+            <tbody>
+              <tr><td>提示「Shizuku 未运行」</td><td>Shizuku App 是否显示「正在运行」；重启手机后需要重新启动 Shizuku</td></tr>
+              <tr><td>停在「正在后台监听」不动</td><td>是否已经点过「开始抓取」<b>之后</b>才去开的门（抓取会先清空日志缓冲）</td></tr>
+              <tr><td>一直抓不到</td><td>天猫校园是否真的完成了开锁；地址是否填对；换电脑 adb 方式交叉验证</td></tr>
+              <tr><td>抓到钥匙但没地址</td><td>日志里只有 key 没有 mac，手工填地址即可</td></tr>
+              <tr><td>长时间无结果</td><td>4 分钟后会自动结束并给出诊断信息</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>诊断信息：</p>
+        <pre><code>adb logcat -s fkTM:D                                  # App 侧抓取日志
+adb shell cat /data/local/tmp/fktm_grab_diag.txt      # 服务端进度（需 shell/root）</code></pre>
+
+        <h4>方式二（电脑）</h4>
+        <div class="tbl-wrap">
+          <table class="tbl">
+            <thead><tr><th>现象</th><th>检查</th></tr></thead>
+            <tbody>
+              <tr><td><code class="mono">adb devices</code> 为空</td><td>换线 / 换口；手机上确认「允许 USB 调试」弹窗</td></tr>
+              <tr><td>抓到的文件里没有 <code class="mono">activationKey</code></td><td>天猫校园必须先完成一次<b>成功的</b>开锁</td></tr>
+              <tr><td>有日志但没有钥匙行</td><td>确认过滤标签里写了 <code class="mono">VocLockHelperV2</code>；天猫校园改版可能改了标签，先全量捞一次：<code class="mono">adb logcat | findstr /i activationKey</code></td></tr>
+              <tr><td><code class="mono">verify</code> 报缺少 pycryptodome</td><td><code class="mono">pip install pycryptodome</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="note">
+          <b>都不行？</b>换个时机再试一次。凭证抓取依赖天猫校园把日志打出来，不同版本、不同系统策略下差异很大 ——
+          但只要成功抓到过一次，之后就永久有效。
         </div>
       </div>
     </section>
