@@ -1,0 +1,120 @@
+name: Prepare Version Update
+
+# 发版第一步 —— 对标 yamibo-app 的 “Prepare Version Update”。
+#
+# 它只改「版本相关」的东西，不构建、不签名、不建 Release：
+#   1. fktm-android/app/build.gradle.kts 的 versionCode / versionName
+#   2. 新建 update/changelogs/{versionCode}.changelog
+#   3. update/stable.json 切到新版本并置 isReady=false（客户端显示「灰度中」）
+#
+# 跑完之后再运行 “Release APK” 完成构建与发布。两步分开的好处是：
+# 清单在安装包存在之前就已经指向新版本，但 isReady=false —— 客户端只会提示
+# 「有新版在灰度中」，不会点到一个还不存在的下载地址。
+#
+# 本流程是纯 Python + git，不需要 JDK / Gradle，几十秒就能跑完。
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: "新版本号（留空 = 当前补丁号 +1，例如 1.0.0 → 1.0.1）"
+        required: false
+        type: string
+      version_code:
+        description: "versionCode（留空 = 当前 + 1）"
+        required: false
+        type: string
+      changelog_mode:
+        description: "更新内容来源：auto = 从上次发版以来的提交自动整理"
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - auto+extra
+          - manual
+      changelog_extra:
+        description: "补充 / 手写的更新内容（多行；manual 模式必填）"
+        required: false
+        type: string
+      release_notes:
+        description: "清单里的一句话简介（留空自动取第一条要点）"
+        required: false
+        type: string
+      dry_run:
+        description: "只预览，不写文件、不提交、不推送"
+        required: false
+        default: false
+        type: boolean
+      trigger_release_after:
+        description: "准备完成后自动触发 Release APK"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: prepare-release-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: write
+
+env:
+  RELEASE_BRANCH: main
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Ensure running on release branch
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_NAME}" != "${RELEASE_BRANCH}" ]; then
+            echo "::error::请在 ${RELEASE_BRANCH} 分支上运行本流程（当前 ${GITHUB_REF_NAME}）。"
+            exit 1
+          fi
+
+      - name: Prepare version files
+        id: prepare
+        env:
+          INPUT_VERSION_NAME: ${{ inputs.version_name }}
+          INPUT_VERSION_CODE: ${{ inputs.version_code }}
+          INPUT_CHANGELOG_MODE: ${{ inputs.changelog_mode }}
+          INPUT_CHANGELOG_EXTRA: ${{ inputs.changelog_extra }}
+          INPUT_RELEASE_NOTES: ${{ inputs.release_notes }}
+          INPUT_RELEASE_BRANCH: ${{ env.RELEASE_BRANCH }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        run: python3 .github/scripts/prepare-version-update.py
+
+      - name: Validate prepared manifest
+        if: ${{ !inputs.dry_run && steps.prepare.outputs.already_prepared != 'true' }}
+        run: python3 .github/scripts/validate-update-manifest.py update/stable.json --require-not-ready
+
+      - name: Commit and push version update
+        if: ${{ !inputs.dry_run && steps.prepare.outputs.already_prepared != 'true' }}
+        env:
+          VERSION_NAME: ${{ steps.prepare.outputs.version_name }}
+          VERSION_CODE: ${{ steps.prepare.outputs.version_code }}
+          TARGET_BRANCH: ${{ steps.prepare.outputs.target_branch }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add fktm-android/app/build.gradle.kts update/stable.json "update/changelogs/${VERSION_CODE}.changelog"
+          git commit -m "release: 准备 v${VERSION_NAME} (versionCode ${VERSION_CODE})"
+          git push origin "HEAD:${TARGET_BRANCH}"
+
+      - name: Trigger release workflow
+        if: ${{ !inputs.dry_run && inputs.trigger_release_after }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_BRANCH: ${{ steps.prepare.outputs.target_branch }}
+        run: gh workflow run "Release APK" --ref "${TARGET_BRANCH}"

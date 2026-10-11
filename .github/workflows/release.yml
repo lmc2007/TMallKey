@@ -1,0 +1,308 @@
+name: Release APK
+
+# 发布流程 —— 对标 yamibo-app 的 “Release Android APK”，按 TMKey 的单模块结构重写。
+#
+# 两阶段：
+#   1. Prepare Version Update  改版本号 + 写 changelog + 清单置为 isReady=false（灰度中）
+#   2. 本流程                   构建 → 签名 → 建 Release → 清单置为 isReady=true（可下载）
+#
+# 版本号的唯一来源是 update/stable.json；本流程会先校验它与
+# fktm-android/app/build.gradle.kts 一致，对不上直接失败，避免发出「包与清单不是同一版」。
+#
+# 需要的仓库 Secrets（Settings → Secrets and variables → Actions）：
+#   KEYSTORE_BASE64 / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD
+# 导出方法：bash .github/scripts/export-signing-secrets.sh
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "只做校验与构建，不建 tag、不建 Release、不改清单、不推 main"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  MANIFEST_FILE: update/stable.json
+  GRADLE_FILE: fktm-android/app/build.gradle.kts
+  RELEASE_BRANCH: main
+  # 签名证书指纹（公钥信息，不是机密）。它钉住「老用户能否覆盖安装」这条线：
+  # 指纹变了说明 keystore 被换过，必须人工确认，不能让流水线静默发出去。
+  EXPECTED_CERT_SHA256: 14783decaa2141edc41e8864a0c6535939a36cffbd43ab3ddcc7a17454572906
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make gradlew executable
+        working-directory: fktm-android
+        run: chmod +x gradlew
+
+      - name: Ensure running on release branch
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_NAME}" != "${RELEASE_BRANCH}" ]; then
+            echo "::error::发布流程必须在 ${RELEASE_BRANCH} 上运行（当前 ${GITHUB_REF_NAME}）—— 客户端固定从 ${RELEASE_BRANCH} 的 ${MANIFEST_FILE} 拉清单。"
+            exit 1
+          fi
+
+      - name: Validate update manifest
+        run: python3 .github/scripts/validate-update-manifest.py "$MANIFEST_FILE"
+
+      - name: Resolve release metadata
+        id: meta
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          manifest = json.loads(Path(os.environ["MANIFEST_FILE"]).read_text(encoding="utf-8"))
+          version_code = int(manifest["versionCode"])
+          version_name = str(manifest["versionName"]).strip()
+
+          if not re.fullmatch(r"\d+\.\d+\.\d+", version_name):
+              raise SystemExit(f"versionName 必须是 x.y.z，当前为 {version_name!r}")
+
+          changelog = Path(os.environ["MANIFEST_FILE"]).parent / "changelogs" / f"{version_code}.changelog"
+          if not changelog.is_file() or not changelog.read_text(encoding="utf-8").strip():
+              raise SystemExit(f"缺少或为空的 changelog：{changelog}")
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          tag = f"v{version_name}"
+          apk_name = f"TMKey-{version_name}.apk"
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"version_code={version_code}\n")
+              out.write(f"version_name={version_name}\n")
+              out.write(f"tag={tag}\n")
+              out.write(f"release_title={tag}\n")
+              out.write(f"changelog={changelog.as_posix()}\n")
+              out.write(f"apk_name={apk_name}\n")
+              out.write(f"release_url=https://github.com/{repo}/releases/tag/{tag}\n")
+              out.write(f"asset_url=https://github.com/{repo}/releases/download/{tag}/{apk_name}\n")
+          PY
+
+      - name: Check gradle version matches manifest
+        env:
+          VERSION_CODE: ${{ steps.meta.outputs.version_code }}
+          VERSION_NAME: ${{ steps.meta.outputs.version_name }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          text = Path(os.environ["GRADLE_FILE"]).read_text(encoding="utf-8")
+          code_match = re.search(r"\n\s*versionCode\s*=\s*(\d+)", text)
+          name_match = re.search(r'\n\s*versionName\s*=\s*"([^"]+)"', text)
+          if not code_match or not name_match:
+              raise SystemExit(f"无法在 {os.environ['GRADLE_FILE']} 中解析 versionCode / versionName")
+
+          expected_code = int(os.environ["VERSION_CODE"])
+          expected_name = os.environ["VERSION_NAME"]
+          if int(code_match.group(1)) != expected_code or name_match.group(1) != expected_name:
+              raise SystemExit(
+                  "版本号对不上：build.gradle.kts 是 "
+                  f"{name_match.group(1)} (versionCode {code_match.group(1)})，"
+                  f"清单是 {expected_name} (versionCode {expected_code})。请先跑一次 Prepare Version Update。"
+              )
+          print(f"版本号一致：{expected_name} (versionCode {expected_code})")
+          PY
+
+      - name: Create and push release tag
+        if: ${{ !inputs.dry_run }}
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            tag_commit="$(git rev-list -n 1 "$TAG")"
+            head_commit="$(git rev-parse HEAD)"
+            if [ "$tag_commit" != "$head_commit" ]; then
+              echo "::error::tag $TAG 已存在于 $tag_commit，但当前 HEAD 是 $head_commit。该版本可能已经发布过 —— 请换更大的 versionCode / versionName。"
+              exit 1
+            fi
+            echo "tag $TAG 已存在且指向当前提交，按重跑处理"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag "$TAG"
+            git push origin "refs/tags/$TAG"
+          fi
+
+      - name: Decode signing keystore
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_BASE64:-}" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::未配置 KEYSTORE_BASE64，本次将产出未签名 APK"
+            exit 0
+          fi
+          for name in KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::缺少签名密钥 $name。请运行 bash .github/scripts/export-signing-secrets.sh 并按提示添加。"
+              exit 1
+            fi
+          done
+          printf '%s' "$KEYSTORE_BASE64" | tr -d '\n\r ' | base64 --decode > fktm-android/tmkey-release.jks
+          {
+            echo "storeFile=tmkey-release.jks"
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > fktm-android/keystore.properties
+          echo "available=true" >> "$GITHUB_OUTPUT"
+          echo "keystore 就绪：$(stat -c%s fktm-android/tmkey-release.jks) 字节"
+
+      - name: Require signing key for real release
+        if: ${{ !inputs.dry_run && steps.signing.outputs.available != 'true' }}
+        run: |
+          set -euo pipefail
+          echo "::error::正式发布必须配置签名密钥，否则产出的 APK 无法覆盖安装老版本。"
+          echo "请添加 Secrets：KEYSTORE_BASE64 / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD"
+          echo "本地导出：bash .github/scripts/export-signing-secrets.sh"
+          exit 1
+
+      - name: Build release APK
+        working-directory: fktm-android
+        run: ./gradlew :app:assembleRelease --console=plain
+
+      - name: Verify signature and compute digest
+        id: apk
+        env:
+          SIGNED: ${{ steps.signing.outputs.available }}
+        run: |
+          set -euo pipefail
+          apk="$(find fktm-android/app/build/outputs/apk/release -name '*.apk' | head -n 1)"
+          if [ -z "$apk" ]; then
+            echo "::error::没有找到 release APK"
+            exit 1
+          fi
+
+          build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          if [ "${SIGNED}" = "true" ]; then
+            "$build_tools/apksigner" verify --print-certs -v "$apk"
+            actual="$("$build_tools/apksigner" verify --print-certs "$apk" | sed -n 's/.*certificate SHA-256 digest: *//p' | head -n 1)"
+            if [ "$actual" != "$EXPECTED_CERT_SHA256" ]; then
+              echo "::error::签名证书指纹不符：期望 $EXPECTED_CERT_SHA256，实际 $actual。换 keystore 会让老用户无法覆盖安装，请人工确认后再发。"
+              exit 1
+            fi
+            echo "签名证书指纹一致：$actual"
+          else
+            echo "::warning::dry-run 且未配置签名，跳过签名校验（此包不可用于发布）"
+          fi
+
+          sha256="$(sha256sum "$apk" | awk '{print $1}')"
+          size="$(stat -c%s "$apk")"
+          echo "APK:    $apk"
+          echo "sha256: $sha256"
+          echo "size:   $size"
+          {
+            echo "path=$apk"
+            echo "sha256=$sha256"
+            echo "size=$size"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create or update GitHub release
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          TITLE: ${{ steps.meta.outputs.release_title }}
+          CHANGELOG: ${{ steps.meta.outputs.changelog }}
+          APK: ${{ steps.apk.outputs.path }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "$TITLE" --notes-file "$CHANGELOG"
+            gh release upload "$TAG" "$APK" --clobber
+          else
+            gh release create "$TAG" "$APK" --title "$TITLE" --notes-file "$CHANGELOG" --verify-tag
+          fi
+
+      - name: Publish manifest
+        if: ${{ !inputs.dry_run }}
+        env:
+          RELEASE_URL: ${{ steps.meta.outputs.release_url }}
+          ASSET_URL: ${{ steps.meta.outputs.asset_url }}
+          APK_NAME: ${{ steps.meta.outputs.apk_name }}
+          APK_SHA256: ${{ steps.apk.outputs.sha256 }}
+          APK_SIZE: ${{ steps.apk.outputs.size }}
+        run: python3 .github/scripts/write-published-update-manifest.py
+
+      - name: Validate published manifest
+        if: ${{ !inputs.dry_run }}
+        run: python3 .github/scripts/validate-update-manifest.py "$MANIFEST_FILE" --require-ready
+
+      - name: Commit and push manifest
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION_NAME: ${{ steps.meta.outputs.version_name }}
+          VERSION_CODE: ${{ steps.meta.outputs.version_code }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$MANIFEST_FILE"
+          if git diff --cached --quiet; then
+            echo "清单无变化，跳过提交"
+          else
+            git commit -m "release: 发布 v${VERSION_NAME} (versionCode ${VERSION_CODE})"
+            git push origin "HEAD:${RELEASE_BRANCH}"
+          fi
+
+      - name: Job summary
+        if: ${{ always() }}
+        env:
+          VERSION_NAME: ${{ steps.meta.outputs.version_name }}
+          VERSION_CODE: ${{ steps.meta.outputs.version_code }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          ASSET_URL: ${{ steps.meta.outputs.asset_url }}
+          SHA256: ${{ steps.apk.outputs.sha256 }}
+          SIZE: ${{ steps.apk.outputs.size }}
+        run: |
+          {
+            echo "## Release ${TAG:-（未解析出元信息）}"
+            echo
+            echo "| 项 | 值 |"
+            echo "|---|---|"
+            echo "| 版本 | ${VERSION_NAME:-?} (versionCode ${VERSION_CODE:-?}) |"
+            echo "| tag | ${TAG:-?} |"
+            echo "| APK 直链 | ${ASSET_URL:-?} |"
+            echo "| SHA-256 | \`${SHA256:-?}\` |"
+            echo "| 大小 | ${SIZE:-?} 字节 |"
+            echo "| dry-run | ${{ inputs.dry_run }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

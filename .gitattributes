@@ -1,0 +1,20 @@
+# 统一行尾。
+#
+# 这不是洁癖 —— .github/workflows/*.yml 里的 `run: |` 会被原样交给 Linux 上的 bash，
+# 一旦带上 CRLF，heredoc 的结束标记（PY）就匹配不上、`set -euo pipefail` 也会报错，
+# 流水线会以很难定位的方式失败。把行尾钉在仓库层面，就不用依赖每个人本地的
+# core.autocrlf 设成什么。
+* text=auto eol=lf
+
+# Windows 批处理必须是 CRLF —— cmd 对 LF 的容忍度极差（本项目已经踩过一次）。
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制，不要做任何转换
+*.jar binary
+*.apk binary
+*.jks binary
+*.keystore binary
+*.png binary
+*.jpg binary
+*.webp binary
