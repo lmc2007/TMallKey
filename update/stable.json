@@ -1,17 +1,8 @@
 {
   "channel": "stable",
-  "versionName": "1.0.3",
-  "versionCode": 4,
-  "isReady": true,
-  "releaseNotes": "收发时序下移至关于下方；冷启动 30s 预连接 + 开锁后保活 60s",
-  "releaseUrl": "https://github.com/lmc2007/TMallKey/releases/tag/v1.0.3",
-  "assets": [
-    {
-      "type": "universal-apk",
-      "platform": "android",
-      "url": "https://github.com/lmc2007/TMallKey/releases/download/v1.0.3/TMKey-1.0.3.apk",
-      "sha256": "8741f7c7e40c35f7c1a19f15cb8c1c292e9b066b197fdec3d3dce7cf164f0c20",
-      "size": 1450802
-    }
-  ]
+  "versionName": "1.0.4",
+  "versionCode": 5,
+  "isReady": false,
+  "releaseNotes": "关于页简介改为「作者：牧冷」，新增落地页跳转",
+  "assets": []
 }
