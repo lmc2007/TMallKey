@@ -1,0 +1,80 @@
+name: Deploy Landing Page
+
+# 把 docs/ 目录作为 GitHub Pages 发布出去（落地页 + 下载入口）。
+#
+# 为什么用 Actions 部署而不是「从分支 /docs 部署」：
+#   落地页要显示最新版本号 / 体积 / sha256 / 下载地址，这些都在 update/stable.json 里。
+#   如果按分支部署，docs/ 里就得放一份清单副本，每次发版都要记得同步它，迟早会漂。
+#   这里改成部署前把 update/stable.json 复制进站点根目录 —— 页面用同源相对路径读它，
+#   既不依赖跨域，也不用维护镜像列表，发版后自动是最新的。
+#
+# 仓库需在 Settings → Pages → Source 选择 "GitHub Actions"（本流程首次运行时
+# configure-pages 会尝试自动开启）。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "update/stable.json"
+      - ".github/workflows/pages.yml"
+  # 发版流程（Release APK）最后会提交 update/stable.json，但它是用 GITHUB_TOKEN 推的，
+  # 而 token 触发的推送**不会**再触发其他 workflow（GitHub 防递归），上面的 push 事件收不到。
+  # 所以这里额外挂 workflow_run，等发版跑完再部署一次落地页，保证版本号/下载地址是最新的。
+  workflow_run:
+    workflows: ["Release APK"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时间只跑一个部署；新的推上来就取消旧的，避免旧产物覆盖新站点。
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # 由发版流程触发时，只有发版成功才重新部署（失败的发版不会改动 stable.json）。
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # workflow_run 触发的运行默认检出的是「触发时的工作流所在提交」，
+          # 这里显式检出 main 上的最新提交，才是刚发完版的 stable.json。
+          ref: main
+
+      - name: 把最新发布清单同步进站点（同源读取，免得跨域或依赖镜像）
+        run: |
+          set -euo pipefail
+          if [ ! -f update/stable.json ]; then
+            echo "::error::找不到 update/stable.json，落地页会退化成「下载最新版」链接"
+            exit 1
+          fi
+          cp update/stable.json docs/stable.json
+          echo "已同步 update/stable.json -> docs/stable.json"
+          grep -E '"versionName"|"versionCode"|"isReady"' docs/stable.json || true
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

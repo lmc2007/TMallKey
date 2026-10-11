@@ -198,7 +198,7 @@ cd fktm-android
 |---|---|
 | 手机 | Android 8.0（API 26）以上，具备蓝牙 |
 | 天猫校园 | 已登录、已绑定该门锁，能正常开锁 |
-| TMallKey | 从 [Releases](https://github.com/lmc2007/TMallKey/releases) 下载 APK 安装 |
+| TMallKey | 从[下载页](https://lmc2007.github.io/TMallKey/)或 [Releases](https://github.com/lmc2007/TMallKey/releases) 下载 APK 安装 |
 | Shizuku | 只有「方式一」需要，见下文 |
 
 > **凭证是两样东西**

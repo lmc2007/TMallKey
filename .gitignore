@@ -69,3 +69,8 @@ Thumbs.db
 desktop.ini
 *.swp
 *tmp/
+
+# ---------- 8. 落地页构建产物 ----------
+#  docs/stable.json 由 .github/workflows/pages.yml 在部署时从 update/stable.json 复制生成，
+#  源头永远是 update/stable.json —— 不要在这里手工维护第二份副本，迟早会漂。
+docs/stable.json
