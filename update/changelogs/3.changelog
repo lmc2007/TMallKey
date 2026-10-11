@@ -1,0 +1,16 @@
+# v1.0.2
+
+新增：
+- 应用名改为 TmallKey、关于页加 GitHub 跳转、缺通知权限自动申请
+- 应用内检查更新与下载安装
+
+更改：
+- README 新增详细使用教程，脚本去掉本机硬编码路径
+- README 补齐 MIT 许可证与 clone 指引
+
+其他：
+- Update README.md
+- Delete fkTM-PLAN.md
+- 两阶段发布流水线（对标 yamibo-app）
+- 天猫校园宿舍 BLE 门禁「一点即开」独立 App
+- Initial commit
