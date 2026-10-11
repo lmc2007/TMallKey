@@ -188,9 +188,9 @@ fun MainScreen(
 }
 
 /**
- * 「关于」卡片：应用名 + 一句话简介 + 跳转开源仓库。
+ * 「关于」卡片：应用名 + 作者 + 落地页 / 开源仓库两个入口。
  *
- * 仓库地址统一从 [UpdateSources.REPO_URL] 取，避免和「检查更新」的源各写一份、改的时候漏掉。
+ * 两个地址都统一从 [UpdateSources] 取，避免和「检查更新」的源各写一份、改的时候漏掉。
  */
 @Composable
 private fun AboutCard() {
@@ -209,17 +209,22 @@ private fun AboutCard() {
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                "协议级复刻 · 开锁全程不联网 · MIT 开源\n" +
-                    "不注入、不 hook 天猫校园，仅复刻 BLE 开锁协议。",
+                "作者：牧冷",
                 fontSize = 11.sp,
                 lineHeight = 16.sp,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
             )
             Spacer(Modifier.height(10.dp))
-            OutlinedButton(
-                onClick = { openInBrowser(context, UpdateSources.REPO_URL) },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("GitHub 开源仓库", fontSize = 13.sp) }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = { openInBrowser(context, UpdateSources.PAGES_URL) },
+                    modifier = Modifier.weight(1f),
+                ) { Text("打开落地页", fontSize = 13.sp) }
+                OutlinedButton(
+                    onClick = { openInBrowser(context, UpdateSources.REPO_URL) },
+                    modifier = Modifier.weight(1f),
+                ) { Text("GitHub 仓库", fontSize = 13.sp) }
+            }
         }
     }
 }

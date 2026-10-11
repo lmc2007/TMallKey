@@ -14,6 +14,14 @@ object UpdateSources {
     /** 开源仓库主页。「关于」区块的「GitHub 仓库」按钮跳转到这里。 */
     const val REPO_URL = "https://github.com/lmc2007/TMallKey"
 
+    /**
+     * 落地页（GitHub Pages）。
+     *
+     * 「关于」区块的「打开落地页」按钮跳转到这里 —— 页面上有下载入口与完整使用教程，
+     * 对普通用户比仓库页友好。仓库主页字段也指向它。
+     */
+    const val PAGES_URL = "https://lmc2007.github.io/TMallKey/"
+
     /** 清单地址：仓库主分支 `update/` 目录。改了仓库名或分支要同步这里。 */
     const val MANIFEST_URL =
         "https://raw.githubusercontent.com/lmc2007/TMallKey/main/update/stable.json"
