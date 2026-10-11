@@ -1,17 +1,8 @@
 {
   "channel": "stable",
-  "versionName": "1.0.4",
-  "versionCode": 5,
-  "isReady": true,
-  "releaseNotes": "关于页简介改为「作者：牧冷」，新增落地页跳转",
-  "releaseUrl": "https://github.com/lmc2007/TMallKey/releases/tag/v1.0.4",
-  "assets": [
-    {
-      "type": "universal-apk",
-      "platform": "android",
-      "url": "https://github.com/lmc2007/TMallKey/releases/download/v1.0.4/TMKey-1.0.4.apk",
-      "sha256": "f9be56e2c8d63dad1806626fae2e226a4bde5eaf5bc2580eb2f63a2ea6aea0b4",
-      "size": 1450802
-    }
-  ]
+  "versionName": "1.0.5",
+  "versionCode": 6,
+  "isReady": false,
+  "releaseNotes": "发版后改用「显式调用」部署落地页（workflow_run 事件实测不触发）",
+  "assets": []
 }
