@@ -1,17 +1,8 @@
 {
   "channel": "stable",
-  "versionName": "1.0.2",
-  "versionCode": 3,
-  "isReady": true,
-  "releaseNotes": "应用名改为 TmallKey、关于页加 GitHub 跳转、缺通知权限自动申请",
-  "releaseUrl": "https://github.com/lmc2007/TMallKey/releases/tag/v1.0.2",
-  "assets": [
-    {
-      "type": "universal-apk",
-      "platform": "android",
-      "url": "https://github.com/lmc2007/TMallKey/releases/download/v1.0.2/TMKey-1.0.2.apk",
-      "sha256": "3009cdf25daa5d867aa84078a93885894bfc334c6bed45829b808f77a1eea14a",
-      "size": 1450802
-    }
-  ]
+  "versionName": "1.0.3",
+  "versionCode": 4,
+  "isReady": false,
+  "releaseNotes": "收发时序下移至关于下方；冷启动 30s 预连接 + 开锁后保活 60s",
+  "assets": []
 }
