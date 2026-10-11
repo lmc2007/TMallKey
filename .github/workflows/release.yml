@@ -142,17 +142,25 @@ jobs:
           TAG: ${{ steps.meta.outputs.tag }}
         run: |
           set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # actions/checkout 默认不拉 tag（--no-tags），不主动取一次的话会把
+          # 远端已存在的 tag 误判成「不存在」，接着创建同名 tag 又被 push 拒绝。
+          git fetch --tags --force origin
+
           if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
             tag_commit="$(git rev-list -n 1 "$TAG")"
-            head_commit="$(git rev-parse HEAD)"
-            if [ "$tag_commit" != "$head_commit" ]; then
-              echo "::error::tag $TAG 已存在于 $tag_commit，但当前 HEAD 是 $head_commit。该版本可能已经发布过 —— 请换更大的 versionCode / versionName。"
+            # 判定放宽为「tag 是 HEAD 的祖先」而不是「tag == HEAD」：
+            # tag 建好之后 main 再前进（网页改文件、重跑流程）都是正常情况，
+            # 用 == 判定会让重跑永远卡死 —— v1.0.1 正是卡在这里。
+            if git merge-base --is-ancestor "$tag_commit" HEAD; then
+              echo "tag $TAG 已存在（$tag_commit）且是 HEAD 的祖先，按重跑处理"
+            else
+              echo "::error::tag $TAG 指向 $tag_commit，但它不是 HEAD（$(git rev-parse HEAD)）的祖先 —— 该版本可能已随另一条历史发布。请换更大的 versionCode / versionName。"
               exit 1
             fi
-            echo "tag $TAG 已存在且指向当前提交，按重跑处理"
           else
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
             git tag "$TAG"
             git push origin "refs/tags/$TAG"
           fi
@@ -244,14 +252,46 @@ jobs:
           TITLE: ${{ steps.meta.outputs.release_title }}
           CHANGELOG: ${{ steps.meta.outputs.changelog }}
           APK: ${{ steps.apk.outputs.path }}
+          APK_NAME: ${{ steps.meta.outputs.apk_name }}
         run: |
           set -euo pipefail
+
+          # gh 是拿**本地文件的 basename** 当资产名的，而构建产物叫 app-release.apk。
+          # 直接传上去，资产名就和清单里的 ${APK_NAME} 对不上 —— 客户端点下载就是 404
+          # （v1.0.1 已经踩过：清单写 TMKey-1.0.1.apk，实际挂的却是 app-release.apk）。
+          # 先复制成目标文件名再上传，资产名就等于 APK_NAME。
+          staged="$(dirname "$APK")/$APK_NAME"
+          cp -f "$APK" "$staged"
+          echo "准备上传：$APK_NAME（$(stat -c%s "$staged") 字节）"
+
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" --title "$TITLE" --notes-file "$CHANGELOG"
-            gh release upload "$TAG" "$APK" --clobber
+
+            # 清掉历史遗留的错误命名资产，避免同一个 Release 上同时挂着
+            # app-release.apk 和 TMKey-x.y.z.apk（有两个包，用户不知道下哪个）。
+            while IFS= read -r stale; do
+              [ -z "$stale" ] && continue
+              [ "$stale" = "$APK_NAME" ] && continue
+              echo "删除旧命名资产：$stale"
+              gh release delete-asset "$TAG" "$stale" --yes \
+                || echo "::warning::删除资产 $stale 失败，忽略（后面的资产名校验会兜底）"
+            done < <(gh release view "$TAG" --json assets --jq '.assets[].name')
+
+            gh release upload "$TAG" "$staged" --clobber
           else
-            gh release create "$TAG" "$APK" --title "$TITLE" --notes-file "$CHANGELOG" --verify-tag
+            gh release create "$TAG" "$staged" --title "$TITLE" --notes-file "$CHANGELOG" --verify-tag
           fi
+
+          # 回读校验：确认远端真的有这个名字的资产。
+          # 这一步是刻意加的 —— 清单一旦写成 isReady=true 就代表「可下载」，
+          # 必须在这之前把「资产名对不上」这类问题当场拦下来，而不是等用户点 404。
+          assets="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+          echo "远端资产列表："; echo "$assets"
+          if ! grep -Fxq "$APK_NAME" <<< "$assets"; then
+            echo "::error::Release $TAG 上找不到资产 $APK_NAME，清单会指向 404，已中止。"
+            exit 1
+          fi
+          echo "资产名校验通过：$APK_NAME"
 
       - name: Publish manifest
         if: ${{ !inputs.dry_run }}
@@ -281,7 +321,9 @@ jobs:
             echo "清单无变化，跳过提交"
           else
             git commit -m "release: 发布 v${VERSION_NAME} (versionCode ${VERSION_CODE})"
-            git push origin "HEAD:${RELEASE_BRANCH}"
+            # 直接 push 会在「流程跑动期间 main 前进了」时被非快进拒绝。
+            # 统一走带重试的脚本：拉取 → rebase → 重推。
+            bash .github/scripts/push-with-retry.sh "${RELEASE_BRANCH}"
           fi
 
       - name: Job summary
