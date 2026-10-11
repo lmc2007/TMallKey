@@ -10,6 +10,7 @@
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0.21-7F52FF?logo=kotlin&logoColor=white)](#)
 [![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)](#)
 [![Tests](https://img.shields.io/badge/tests-97%20passed-2ea44f)](#测试)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Network](https://img.shields.io/badge/network-none-lightgrey)](#安全与隐私)
 
 </div>
@@ -121,7 +122,7 @@ TMKey 是一个**协议级复刻**项目：把天猫校园 App 里的宿舍 BLE 
 ## 项目结构
 
 ```
-tmkey/
+TMallKey/
 ├── fktm/                       PC 侧工具链（Python 3.13）
 │   ├── voc_protocol.py           协议复刻层，函数名与反编译出的 Java 原方法一一对应
 │   ├── mock_lock.py              离线门锁仿真器（SimulatedLink）
@@ -143,6 +144,11 @@ tmkey/
 ---
 
 ## 快速开始
+
+```bash
+git clone https://github.com/lmc2007/TMallKey.git
+cd TMallKey
+```
 
 ### PC 侧工具链
 
@@ -260,10 +266,7 @@ Android 8.0（API 26）及以上，且具备 BLE 硬件。
 
 ## 许可证
 
-本仓库当前未附加开源许可证，即默认保留所有权利。
-
-若计划开放使用，推荐 **MIT**；若要求衍生作品同样开源，可选用 **GPL-3.0**。
-确定后请在仓库根目录放置 `LICENSE` 文件，并更新本节内容。
+本项目采用 [MIT License](LICENSE)，Copyright (c) 2026 Muleng。
 
 ---
 
