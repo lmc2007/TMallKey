@@ -10,7 +10,8 @@ logparse.py — 解析天猫校园 logcat 取证日志，并与 P1 复刻帧逐�
   onCharacteristicWrite / onCharacteristicChanged 会打印每一个收发字节。
 
   注意：App 自身的 Logger 默认 logFlag=1（仅 logcat），但配置项 `config_log_flag`
-  可开到 MASK_SLS=2，届时同样的内容会走阿里云日志服务上报 → 见 fkTM-PLAN.md §6 隐私提醒。
+  可开到 MASK_SLS=2，届时同样的内容会走阿里云日志服务上报 ——
+  也就是说 activationKey 有被上传到云端的可能。别打开这个开关。
 """
 
 from __future__ import annotations

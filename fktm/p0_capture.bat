@@ -50,7 +50,8 @@ if errorlevel 1 echo     [!] no activationKey line found -- capture may be incom
 if not errorlevel 1 echo     [ok] activationKey line present.
 echo.
 echo [*] running verify...
-set "PY=C:\Users\64702\.workbuddy\binaries\python\envs\default\Scripts\python.exe"
+REM prefer a project-local venv, otherwise whatever "python" resolves to
+set "PY=%~dp0.venv\Scripts\python.exe"
 if not exist "%PY%" set "PY=python"
 "%PY%" "%~dp0cli.py" verify --log "%OUT%"
 echo.
