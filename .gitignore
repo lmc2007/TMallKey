@@ -74,3 +74,5 @@ desktop.ini
 #  docs/stable.json 由 .github/workflows/pages.yml 在部署时从 update/stable.json 复制生成，
 #  源头永远是 update/stable.json —— 不要在这里手工维护第二份副本，迟早会漂。
 docs/stable.json
+#  同理：抓取脚本在部署时从 fktm/p0_capture.bat 拷进站点根，供教程里的同源下载链接使用。
+docs/p0_capture.bat

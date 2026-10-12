@@ -44,6 +44,16 @@ jobs:
           echo "已同步 update/stable.json -> docs/stable.json"
           grep -E '"versionName"|"versionCode"|"isReady"' docs/stable.json || true
 
+          # 教程里的「下载 p0_capture.bat」也走同源：国内直连可用，
+          # 而且 HTML 的 download 属性只对同源 URL 一定生效（点了就下载，不内联显示源码）。
+          # 与 stable.json 同理 —— 源头永远是 fktm/p0_capture.bat，这里不维护第二份副本。
+          if [ ! -f fktm/p0_capture.bat ]; then
+            echo "::error::找不到 fktm/p0_capture.bat，教程里的下载链接会 404"
+            exit 1
+          fi
+          cp fktm/p0_capture.bat docs/p0_capture.bat
+          echo "已同步 fktm/p0_capture.bat -> docs/p0_capture.bat"
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
