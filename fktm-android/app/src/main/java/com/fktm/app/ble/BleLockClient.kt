@@ -260,18 +260,37 @@ class BleLockClient(private val appContext: Context) {
 
     data class FoundLock(val address: String, val name: String, val rssi: Int)
 
-    /** 扫描名字含 [nameFilter] 的设备；[timeoutMs] 内未发现返回 null。 */
+    /**
+     * 扫描门锁。
+     *
+     * 两种过滤方式，**优先 [addressFilter]**：
+     *  · [addressFilter] != null —— **只认这一把锁的 MAC**，其它设备（哪怕广播名也是
+     *    `~vTmallLock`）一律忽略。用于「已知地址、只想去连指定门锁」的场景；
+     *  · 否则按 [nameFilter] 匹配广播名 —— 谁先广播返回谁。**仅在地址未知时用。**
+     *
+     * [timeoutMs] 内未发现返回 null。
+     */
     @SuppressLint("MissingPermission")
-    suspend fun scan(timeoutMs: Long = 8_000, nameFilter: String = VocProtocol.VOC_LOCK_TAG): FoundLock? {
+    suspend fun scan(
+        timeoutMs: Long = 8_000,
+        nameFilter: String = VocProtocol.VOC_LOCK_TAG,
+        addressFilter: String? = null,
+    ): FoundLock? {
         requireReady()
         val a = adapter!!
         val found = CompletableDeferred<FoundLock>()
         val cb = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
-                val nm = result.device?.name ?: result.scanRecord?.deviceName ?: return
-                if (nm.contains(nameFilter) && !found.isCompleted) {
-                    found.complete(FoundLock(result.device.address, nm, result.rssi))
+                val dev = result.device ?: return
+                val nm = dev.name ?: result.scanRecord?.deviceName ?: ""
+                if (addressFilter != null) {
+                    // 指定了 MAC 就只认它：名字不作为判据（部分机型扫到的
+                    // scanRecord 里没有 deviceName，按名字比反而会漏）。
+                    if (!dev.address.equals(addressFilter, ignoreCase = true)) return
+                } else if (!nm.contains(nameFilter)) {
+                    return
                 }
+                if (!found.isCompleted) found.complete(FoundLock(dev.address, nm, result.rssi))
             }
 
             override fun onBatchScanResults(results: MutableList<ScanResult>) {
@@ -283,7 +302,7 @@ class BleLockClient(private val appContext: Context) {
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
         scanner.startScan(null, settings, cb)
-        note("scan start (${timeoutMs}ms)")
+        note("scan start (${timeoutMs}ms)${if (addressFilter != null) " target=$addressFilter" else " name~$nameFilter"}")
         return try {
             withTimeoutOrNull(timeoutMs) { found.await() }
         } finally {
@@ -297,8 +316,15 @@ class BleLockClient(private val appContext: Context) {
     // ==================================================================
 
     /**
-     * 连接门锁。
-     * @param address 已知地址时直接连（跳过扫描，更快）；为 null 则先扫描。
+     * 连接门锁 —— **只连指定地址那把锁**。
+     *
+     * @param address 已知地址（来自已添加的凭证）时直连；为 null 才退回「按广播名扫描」，
+     *   这条路径仅用于没有凭证的调试场景，正常业务（预连接 / 开锁 / 读电量）永远带地址。
+     *
+     * 直连失败时会退一步扫一次，但**过滤条件仍是这个 MAC**：
+     * 宿舍楼里不止一把 `~vTmallLock`，按名字随便挑一把既连不对（没 key 也开不了）
+     * 又白占别人的连接，所以绝不退化到「谁先广播连谁」。
+     *
      * @return 实际连上的地址
      */
     suspend fun connect(
@@ -310,23 +336,31 @@ class BleLockClient(private val appContext: Context) {
         t0 = SystemClock.elapsedRealtime()
         log.clear()
 
-        var target = address
+        val target = address
         if (target != null) {
             note("direct connect $target")
             if (connectGatt(target, connectTimeoutMs)) {
                 currentAddress = target
                 return target
             }
-            note("direct connect failed, fallback to scan")
+            note("direct connect failed, fallback to MAC-filtered scan")
             close()
+            val hit = scan(scanTimeoutMs, addressFilter = target)
+                ?: throw BleUnavailableException("未发现门锁 $target（不在范围内或未上电）")
+            if (!connectGatt(hit.address, connectTimeoutMs)) {
+                throw BleUnavailableException("BLE 连接失败（$target）")
+            }
+            currentAddress = hit.address
+            return hit.address
         }
+
+        // 地址未知：只能按广播名扫（调试用，业务路径不该走这里）
         val found = scan(scanTimeoutMs)
             ?: throw BleUnavailableException("未发现门锁（广播名应含 ${VocProtocol.VOC_LOCK_TAG}）")
-        target = found.address
         note("found ${found.name} ${found.address} rssi=${found.rssi}")
-        if (!connectGatt(target, connectTimeoutMs)) throw BleUnavailableException("BLE 连接失败")
-        currentAddress = target
-        return target
+        if (!connectGatt(found.address, connectTimeoutMs)) throw BleUnavailableException("BLE 连接失败")
+        currentAddress = found.address
+        return found.address
     }
 
     /**

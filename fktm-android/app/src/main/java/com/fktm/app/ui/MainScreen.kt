@@ -105,7 +105,11 @@ fun MainScreen(
 
         if (locks.isNotEmpty() && vm.state !is UnlockState.Working) {
             Spacer(Modifier.height(10.dp))
-            ConnectionBadge(ready = bleReady, connecting = bleConnecting)
+            ConnectionBadge(
+                ready = bleReady,
+                connecting = bleConnecting,
+                target = vm.locks.firstOrNull()?.address,
+            )
         }
 
         Spacer(Modifier.height(18.dp))
@@ -243,15 +247,18 @@ private fun openInBrowser(context: Context, url: String) {
  * 连接状态角标。
  *
  * 背后的规则（见 [com.fktm.app.ble.BleLockClient]）：
- *  · App 一进入前台就预连接，**30s 内没有开锁/读电量**就自动断开（冷启动窗口）；
+ *  · App 一进入前台就**只向已添加的首把门锁**（[target] 的 MAC）预连接，不走扫描；
+ *  · **30s 内没有开锁/读电量**就自动断开（冷启动窗口）；
  *  · 一旦开锁，改成**开锁后保活 60s**，期间再开锁重新计时；
  *  · 退到后台立即让出连接（息屏也算）。
  */
 @Composable
-private fun ConnectionBadge(ready: Boolean, connecting: Boolean) {
+private fun ConnectionBadge(ready: Boolean, connecting: Boolean, target: String?) {
+    // 目标锁的 MAC 尾两段，让用户一眼确认「连的是我这把」而不是楼里其它 ~vTmallLock
+    val tail = target?.takeLast(5)?.let { " · 本锁 $it" } ?: ""
     val (mark, text, color) = when {
-        ready -> Triple("●", "已预连接 · 开锁免建连", MaterialTheme.colorScheme.primary)
-        connecting -> Triple("◌", "预连接中…", MaterialTheme.colorScheme.primary)
+        ready -> Triple("●", "已预连接$tail · 开锁免建连", MaterialTheme.colorScheme.primary)
+        connecting -> Triple("◌", "预连接中$tail", MaterialTheme.colorScheme.primary)
         else -> Triple(
             "○",
             "未连接 · 开锁需先建连",

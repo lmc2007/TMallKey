@@ -55,6 +55,11 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
      * 预热连接 —— 方案 A 的核心：
      * App 一到前台就把连接建好，用户真点开锁时直接走 0B（无需等 1~2s 建连）。
      *
+     * 目标**只有一把**：已添加凭证里的首把（[CredentialStore.primary]）的 MAC。
+     * 直接按 MAC 建连，**不发 BLE 扫描**（省电、不要定位权限、也不会误连楼里别的锁）；
+     * 万一直连失败，退一步的扫描同样带 MAC 过滤 —— 连不上就报「不在范围内」，
+     * 永远不会挑到另一把 `~vTmallLock`。
+     *
      * 设计约束：
      *  · 全程静默 —— 不动 state、不弹错、不覆盖日志（失败就当没发生过）；
      *  · 已在开锁/读电量时直接跳过，不抢锁；
