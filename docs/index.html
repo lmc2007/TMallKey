@@ -394,8 +394,15 @@ footer{border-top:1px solid var(--border); padding:36px 0 46px; font-size:13px; 
         </p>
 
         <div class="dl-actions">
-          <a class="btn btn-primary dl-btn-big" href="https://github.com/lmc2007/TMallKey/releases/latest/download/tmcampus-5.0.0-lspatched.apk" rel="noopener">下载补丁版天猫校园</a>
+          <a class="btn btn-primary dl-btn-big" id="dl-patch" href="https://github.com/lmc2007/TMallKey/releases/latest/download/tmcampus-5.0.0-lspatched.apk" rel="noopener">下载补丁版天猫校园</a>
           <a class="btn btn-ghost" href="#tutorial">用法见下方教程「方式三」</a>
+        </div>
+
+        <div class="mirrors">
+          <p>国内直连 GitHub 较慢时，可换下面的加速镜像下载（同一个文件）：</p>
+          <div class="mirror-list" id="dl-patch-mirrors">
+            <a class="mirror" href="https://github.com/lmc2007/TMallKey/releases/latest/download/tmcampus-5.0.0-lspatched.apk" rel="noopener">GitHub 直连</a>
+          </div>
         </div>
 
         <div class="hint">
@@ -727,6 +734,7 @@ adb shell cat /data/local/tmp/fktm_grab_diag.txt      # 服务端进度（需 sh
 <script>
 (function(){
   var REPO = 'https://github.com/lmc2007/TMallKey';
+  var PATCH_URL = REPO + '/releases/latest/download/tmcampus-5.0.0-lspatched.apk';
   var RAW = 'https://raw.githubusercontent.com/lmc2007/TMallKey/main/update/stable.json';
   var MIRROR_HOSTS = [
     'github.cnxiaobai.com',
@@ -790,9 +798,34 @@ adb shell cat /data/local/tmp/fktm_grab_diag.txt      # 服务端进度（需 sh
 
   function setText(id, txt){ var el = $(id); if (el) el.textContent = txt; }
 
+  /** 补丁版天猫校园的镜像列表（GitHub 直连 + 通用代理前缀）。 */
+  function fillPatchMirrors(){
+    var list = $('dl-patch-mirrors');
+    if (!list) return;
+    var frag = document.createDocumentFragment();
+    var hosts = document.createElement('a');
+    hosts.className = 'mirror';
+    hosts.href = PATCH_URL;
+    hosts.rel = 'noopener';
+    hosts.textContent = 'GitHub 直连';
+    frag.appendChild(hosts);
+    for (var i=0;i<DL_PROXIES.length;i++){
+      var p = DL_PROXIES[i];
+      var a = document.createElement('a');
+      a.className = 'mirror';
+      a.href = p.prefix + PATCH_URL;
+      a.rel = 'noopener';
+      a.textContent = p.name;
+      frag.appendChild(a);
+    }
+    list.innerHTML = '';
+    list.appendChild(frag);
+  }
+
   function fallback(){
     setText('hero-ver', '—');
     $('dl-main').href = REPO + '/releases/latest';
+    fillPatchMirrors();
     $('mirror-list').innerHTML = '<a class="mirror" href="' + REPO + '/releases/latest" rel="noopener">GitHub 直连</a>';
   }
 
@@ -818,6 +851,10 @@ adb shell cat /data/local/tmp/fktm_grab_diag.txt      # 服务端进度（需 sh
     main.href = apkUrl;
     main.textContent = '下载 APK ' + ver + (asset ? '（' + fmtSize(asset.size) + '）' : '');
     $('dl-release').href = releaseUrl;
+
+    var patch = $('dl-patch');
+    if (patch) patch.href = PATCH_URL;
+    fillPatchMirrors();
 
     var shaBtn = $('copy-sha');
     if (shaBtn && asset && asset.sha256){
