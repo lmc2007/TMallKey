@@ -2,7 +2,16 @@
   "channel": "stable",
   "versionName": "2.0.0",
   "versionCode": 9,
-  "isReady": false,
+  "isReady": true,
   "releaseNotes": "教程删废话（接水档案/打包来源等解释段全删, 文案收紧）",
-  "assets": []
+  "releaseUrl": "https://github.com/lmc2007/TMallKey/releases/tag/v2.0.0",
+  "assets": [
+    {
+      "type": "universal-apk",
+      "platform": "android",
+      "url": "https://github.com/lmc2007/TMallKey/releases/download/v2.0.0/TMKey-2.0.0.apk",
+      "sha256": "65bd66449d458a4b71c88c7c4c57a805602479293e962ba521e46386cfb942c8",
+      "size": 2544410
+    }
+  ]
 }
