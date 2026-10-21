@@ -285,8 +285,7 @@ fun PhoneLoginScreen(
         }
 
         Text(
-            "说明：这里登录的是**天猫校园账号**（手机号），和你平时打开天猫校园用的那个一致。\n" +
-                "账号密码不会经过本应用，验证码直接由短信下发到手机。",
+            "登录的是天猫校园账号（手机号），密码不经过本应用。",
             fontSize = 11.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             lineHeight = 16.sp,

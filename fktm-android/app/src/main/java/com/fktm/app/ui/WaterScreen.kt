@@ -330,15 +330,7 @@ private fun ImportCard(
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("① 导入天猫校园的登录态", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
             Text(
-                "本应用不自己登录（登录要 appkey + 阿里安全签名，搬不过来），" +
-                    "而是直接把手机上天猫校园已登录的 cookie 读过来。",
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                lineHeight = 16.sp,
-            )
-            Text(
-                "只会申请一次 root：读完就加密存本机，之后完全不需要 root，" +
-                    "直到 cookie 过期（约 24 天）。全程只读，不改天猫校园任何数据。",
+                "读一次天猫校园已登录的 cookie（需 root 授权一次），之后不再需要 root。",
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 lineHeight = 16.sp,
