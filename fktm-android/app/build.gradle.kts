@@ -24,8 +24,8 @@ android {
         minSdk = 26
         targetSdk = 36
         // 版本号唯一来源：update/stable.json 里的 versionCode 必须与这里对齐才能正确判新旧
-        versionCode = 8
-        versionName = "1.0.7"
+        versionCode = 9
+        versionName = "2.0.0"
         vectorDrawables { useSupportLibrary = true }
     }
 
