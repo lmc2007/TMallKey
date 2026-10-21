@@ -223,9 +223,6 @@ cd fktm-android
 **`tmcampus-5.0.0-lspatched.apk`**（天猫校园 · LSPatch 补丁版），
 或到[下载页](https://lmc2007.github.io/TMallKey/)点「下载补丁版天猫校园」。
 
-补丁版 = 官方 5.0.0 原包 + LSPatch v0.8（`-l 2` 签名伪装）+ 一个「凭证同步」Xposed 模块，
-发布流水线每次发版自动生成。
-
 **① 安装**
 
 它与官方天猫校园**同包名、只能装一个**：手机里已装官方版的，先卸载
@@ -242,15 +239,7 @@ cd fktm-android
 （默认名「门锁 + MAC 尾号」，可改名）。凭证与官方版抓到的完全一致 ——
 都是离线 BLE 静态数据，一点即开。
 
-> **接水功能说明**：TMallKey 内的「远程解锁水机」依赖服务端的校园用户档案，
-> 该档案目前只在官方版长期登录的会话上存在。补丁版新登录的会话暂不支持
-> fkTM 内解锁水机 —— **接水直接用补丁版天猫校园即可**（它自己解锁是正常的）。
-> 门锁开关不受影响。
-
-> **技术细节**：模块 hook 的是 `VocLockHelperV2.unlock(Context, JSBParams, …)`，
-> 直接从 `JSBParams` 里取 `macAddress` / `activationKey`，经本地回环 Socket
-> （127.0.0.1:42741）交给 TMallKey。门锁是离线 BLE 静态凭证，不经过任何服务端校验。
-> 打包命令与全部踩坑记录见 [`lspatch-module/README.md`](lspatch-module/README.md)。
+> 打包命令与细节见 [`lspatch-module/README.md`](lspatch-module/README.md)。
 
 #### 方式一 · 手机 App 抓取（Shizuku）
 
