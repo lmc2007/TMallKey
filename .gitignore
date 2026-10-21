@@ -85,3 +85,5 @@ lspatch-module/.gradle/
 lspatch-module/build/
 lspatch-module/local.properties
 lspatch-module/app/libs/
+# dist 里的模块 APK 是要分发的产物，入库；只排除补丁包 out/
+!lspatch-module/dist/
