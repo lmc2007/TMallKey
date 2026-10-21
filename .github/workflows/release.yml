@@ -244,6 +244,41 @@ jobs:
             echo "size=$size"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Patch 天猫校园 (LSPatch + tmxy 模块)
+        id: tmallypatch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 原包资产所在的 Release。天猫校园大版本更新时：换这里的 tag + 上传新原包资产
+          TMALL_SOURCE_RELEASE: v1.0.6
+          LSPATCH_URL: https://github.com/JingMatrix/LSPatch/releases/download/v0.8/lspatch.jar
+          LSPATCH_SHA256: b81094ac3d088849d9781e2678a87562936f8e0d78c4d136a9072dce40f72208
+        run: |
+          set -euo pipefail
+          # 0) 从源码构建模块 APK（xposed-api jar 已入库 lspatch-module/app/libs/）
+          chmod +x lspatch-module/gradlew
+          (cd lspatch-module && ./gradlew :app:assembleRelease --console=plain -q)
+          MODULE_APK="$(find lspatch-module/app/build/outputs/apk/release -name '*.apk' | head -n 1)"
+          [ -n "$MODULE_APK" ] || { echo "::error::模块 APK 构建失败"; exit 1; }
+
+          # 1) LSPatch 必须 v0.8（JingMatrix fork，带 -l 签名伪装；官方 v0.6 没有该选项，补丁包必崩）
+          curl -fL --retry 3 -o lspatch.jar "$LSPATCH_URL"
+          printf '%s  lspatch.jar
+' "$LSPATCH_SHA256" | sha256sum -c -
+
+          # 2) 天猫校园原包：从固定 Release 资产下载
+          gh release download "$TMALL_SOURCE_RELEASE"             --pattern 'tmcampus-5.0.0-original.apk' --output tmallcampus.apk --clobber
+
+          # 3) 打补丁（-l 2 = 签名伪装，没有它阿里安全 SDK 查签名直接崩）
+          java -jar lspatch.jar tmallcampus.apk -m "$MODULE_APK" -l 2 --force -o dist/
+          PATCHED="$(find dist -maxdepth 1 -type f -name '*-lspatched.apk' | head -n 1)"
+          [ -n "$PATCHED" ] || { echo "::error::LSPatch 未产出补丁包"; exit 1; }
+          cp -f "$PATCHED" dist/tmcampus-5.0.0-lspatched.apk
+          {
+            echo "PATCHED_APK=dist/tmcampus-5.0.0-lspatched.apk"
+            echo "PATCHED_NAME=tmcampus-5.0.0-lspatched.apk"
+          } >> "$GITHUB_OUTPUT"
+          echo "补丁包就绪：dist/tmcampus-5.0.0-lspatched.apk（$(stat -c%s dist/tmcampus-5.0.0-lspatched.apk) 字节）"
+
       - name: Create or update GitHub release
         if: ${{ !inputs.dry_run }}
         env:
@@ -253,6 +288,8 @@ jobs:
           CHANGELOG: ${{ steps.meta.outputs.changelog }}
           APK: ${{ steps.apk.outputs.path }}
           APK_NAME: ${{ steps.meta.outputs.apk_name }}
+          PATCHED: ${{ steps.tmallypatch.outputs.PATCHED_APK }}
+          PATCHED_NAME: ${{ steps.tmallypatch.outputs.PATCHED_NAME }}
         run: |
           set -euo pipefail
 
@@ -272,14 +309,16 @@ jobs:
             while IFS= read -r stale; do
               [ -z "$stale" ] && continue
               [ "$stale" = "$APK_NAME" ] && continue
+              # tmallcampus 补丁包/原包是刻意挂载的资产，不清理
+              [ "${stale#tmcampus-}" != "$stale" ] && continue
               echo "删除旧命名资产：$stale"
               gh release delete-asset "$TAG" "$stale" --yes \
                 || echo "::warning::删除资产 $stale 失败，忽略（后面的资产名校验会兜底）"
             done < <(gh release view "$TAG" --json assets --jq '.assets[].name')
 
-            gh release upload "$TAG" "$staged" --clobber
+            gh release upload "$TAG" "$staged" "$PATCHED" --clobber
           else
-            gh release create "$TAG" "$staged" --title "$TITLE" --notes-file "$CHANGELOG" --verify-tag
+            gh release create "$TAG" "$staged" "$PATCHED" --title "$TITLE" --notes-file "$CHANGELOG" --verify-tag
           fi
 
           # 回读校验：确认远端真的有这个名字的资产。
@@ -291,7 +330,11 @@ jobs:
             echo "::error::Release $TAG 上找不到资产 $APK_NAME，清单会指向 404，已中止。"
             exit 1
           fi
-          echo "资产名校验通过：$APK_NAME"
+          if ! grep -Fxq "$PATCHED_NAME" <<< "$assets"; then
+            echo "::error::Release $TAG 上找不到补丁包资产 $PATCHED_NAME"
+            exit 1
+          fi
+          echo "资产名校验通过：$APK_NAME + $PATCHED_NAME"
 
       - name: Publish manifest
         if: ${{ !inputs.dry_run }}
