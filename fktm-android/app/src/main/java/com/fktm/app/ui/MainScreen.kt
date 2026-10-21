@@ -72,6 +72,16 @@ fun MainScreen(
     var showImport by remember { mutableStateOf(!vm.locks.any()) }
     val app = LocalContext.current.applicationContext as FktmApp
 
+    // 从饮水页抓到新门锁凭证后，切回本页时刷新列表
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) vm.refresh()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     // 连接状态角标的数据源。连接本身由 BleLockClient 自己按超时回收
     // （冷启动 30s 窗口 / 开锁后保活 60s / 退后台立即让出），
     // 这里只负责把「现在是不是已经连上」画出来，让用户知道点了能不能秒开。
@@ -140,6 +150,7 @@ fun MainScreen(
                     Text("+ 添加门锁凭证")
                 }
             }
+
         }
 
         if (showImport) {

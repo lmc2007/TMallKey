@@ -15,6 +15,8 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
         android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 扫饮水机二维码 -->
+    <uses-permission android:name="android.permission.CAMERA" />
     <!-- 抓取期间的前台服务：App 要退到后台，必须靠它把进程顶到前台优先级，
          否则会被 ColorOS 之类的系统冻结，Shizuku 的 binder 回调直接断掉。 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -27,6 +29,8 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
+    <!-- 相机只是扫码用，没有也能装（可手输设备号） -->
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
     <application
         android:name=".FktmApp"
@@ -111,5 +115,22 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- LSPatch 模块（跑在天猫校园进程里）把 cookie 推过来。
+             用 Provider 而不是广播：fkTM 被 ColorOS 冻结时收不到广播，
+             但 Provider 调用会主动拉起本进程。 -->
+        <provider
+            android:name=".water.CookieImportProvider"
+            android:authorities="com.fktm.app.cookies"
+            android:exported="true" />
+
+        <!-- 同样用途的广播接收器（fkTM 在前台时的备用通道） -->
+        <receiver
+            android:name=".water.CookieImportReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.fktm.app.ACTION_COOKIES" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

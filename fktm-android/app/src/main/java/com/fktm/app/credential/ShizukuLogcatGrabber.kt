@@ -291,4 +291,5 @@ object ShizukuLogcatGrabber {
                 (diag?.let { "\n服务端诊断：$it" } ?: "\n（连服务端诊断都没取到，说明绑定阶段就卡住了）")
         )
     }
+
 }

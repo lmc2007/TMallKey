@@ -97,6 +97,14 @@ dependencies {
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")
 
+    // 扫饮水机二维码：CameraX 出帧，ZXing 纯 Java 解码。
+    // 刻意不用 ML Kit —— 那套要 Google Play 服务，国内 ROM 上不一定有。
+    implementation("androidx.camera:camera-core:1.4.2")
+    implementation("androidx.camera:camera-camera2:1.4.2")
+    implementation("androidx.camera:camera-lifecycle:1.4.2")
+    implementation("androidx.camera:camera-view:1.4.2")
+    implementation("com.google.zxing:core:3.5.3")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     // JVM 单测：黄金向量回归

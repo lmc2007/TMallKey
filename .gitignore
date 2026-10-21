@@ -76,3 +76,12 @@ desktop.ini
 docs/stable.json
 #  同理：抓取脚本在部署时从 fktm/p0_capture.bat 拷进站点根，供教程里的同源下载链接使用。
 docs/p0_capture.bat
+
+# ---------- LSPatch 模块（tmxy-cookie-dump） ----------
+# 构建产物与设备专属文件不进仓库；xposed-api jar 见 lspatch-module/README.md 的下载地址+sha256
+lspatch-module/out/
+lspatch-module/app/build/
+lspatch-module/.gradle/
+lspatch-module/build/
+lspatch-module/local.properties
+lspatch-module/app/libs/

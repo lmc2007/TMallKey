@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- LSPatch 里选中模块时会预勾选这些包 -->
+    <string-array name="xposedscope">
+        <item>com.tmall.campus.and</item>
+    </string-array>
+</resources>

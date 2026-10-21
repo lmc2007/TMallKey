@@ -8,11 +8,25 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.sp
 import com.fktm.app.ble.BleLockClient
 import com.fktm.app.ui.MainScreen
+import com.fktm.app.ui.WaterScreen
 import com.fktm.app.ui.theme.FktmTheme
 import com.fktm.app.util.NotificationPermission
 import com.fktm.app.vm.UnlockViewModel
+import com.fktm.app.vm.WaterViewModel
 
 /**
  * 主界面。也是「一键开锁」的落点：
@@ -21,6 +35,7 @@ import com.fktm.app.vm.UnlockViewModel
 class MainActivity : ComponentActivity() {
 
     private val vm: UnlockViewModel by viewModels()
+    private val waterVm: WaterViewModel by viewModels()
     private var pendingAutoUnlock = false
 
     private val permLauncher =
@@ -46,11 +61,38 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             FktmTheme {
-                MainScreen(
-                    vm = vm,
-                    onRequestPermissions = { ensurePermissions() },
-                    onEnsureNotificationPermission = { ensureNotificationPermission() },
-                )
+                // 底部导航：门锁 / 饮水。两个功能各自独立成一栏。
+                var tab by rememberSaveable { mutableIntStateOf(0) }
+                Scaffold(
+                    bottomBar = {
+                        NavigationBar {
+                            NavigationBarItem(
+                                selected = tab == 0,
+                                onClick = { tab = 0 },
+                                icon = { Text("🔒", fontSize = 18.sp) },
+                                label = { Text("门锁") },
+                            )
+                            NavigationBarItem(
+                                selected = tab == 1,
+                                onClick = { tab = 1 },
+                                icon = { Text("💧", fontSize = 18.sp) },
+                                label = { Text("饮水") },
+                            )
+                        }
+                    },
+                ) { inner ->
+                    Box(Modifier.padding(inner)) {
+                        if (tab == 0) {
+                            MainScreen(
+                                vm = vm,
+                                onRequestPermissions = { ensurePermissions() },
+                                onEnsureNotificationPermission = { ensureNotificationPermission() },
+                            )
+                        } else {
+                            WaterScreen(vm = waterVm)
+                        }
+                    }
+                }
             }
         }
 
