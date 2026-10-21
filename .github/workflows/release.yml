@@ -262,8 +262,7 @@ jobs:
 
           # 1) LSPatch 必须 v0.8（JingMatrix fork，带 -l 签名伪装；官方 v0.6 没有该选项，补丁包必崩）
           curl -fL --retry 3 -o lspatch.jar "$LSPATCH_URL"
-          printf '%s  lspatch.jar
-' "$LSPATCH_SHA256" | sha256sum -c -
+          echo "$LSPATCH_SHA256  lspatch.jar" | sha256sum -c -
 
           # 2) 天猫校园原包：从固定 Release 资产下载
           gh release download "$TMALL_SOURCE_RELEASE"             --pattern 'tmcampus-5.0.0-original.apk' --output tmallcampus.apk --clobber
