@@ -1,17 +1,8 @@
 {
   "channel": "stable",
-  "versionName": "1.0.6",
-  "versionCode": 7,
-  "isReady": true,
-  "releaseNotes": "优化预连接",
-  "releaseUrl": "https://github.com/lmc2007/TMallKey/releases/tag/v1.0.6",
-  "assets": [
-    {
-      "type": "universal-apk",
-      "platform": "android",
-      "url": "https://github.com/lmc2007/TMallKey/releases/download/v1.0.6/TMKey-1.0.6.apk",
-      "sha256": "500cae0cdec8d78f6780c6d0d7ee25627dc0f63b1f5462a096412ccde7d5d1f1",
-      "size": 1450802
-    }
-  ]
+  "versionName": "1.0.7",
+  "versionCode": 8,
+  "isReady": false,
+  "releaseNotes": "校园饮水(免root登录态同步+门锁凭证抓取) + LSPatch 模块",
+  "assets": []
 }

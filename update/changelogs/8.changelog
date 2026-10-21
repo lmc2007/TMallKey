@@ -1,0 +1,14 @@
+# v1.0.7
+
+新增：
+- 校园饮水(免root登录态同步+门锁凭证抓取) + LSPatch 模块
+
+修复：
+- 修复 release.yml YAML 断裂（printf 转义被劈成真实换行，改用 echo）
+
+更改：
+- 电脑 adb 教程补上 p0_capture.bat 下载链接
+
+其他：
+- release 自动产出 tmallcampus LSPatch 补丁包并挂到 Release 资产
+- 附上 tmxy-cookie-dump 模块 APK（免编译直接用）
