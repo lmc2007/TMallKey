@@ -1,0 +1,4 @@
+# v2.0.1
+
+修复：
+- 门锁 hook 覆盖 V1/V2/VocLockManager + bat 加无过滤回退提示
