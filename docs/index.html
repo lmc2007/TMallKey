@@ -184,11 +184,13 @@ pre code{background:none; border:0; padding:0; color:#C9E4DB; white-space:pre}
 .tab-bar label:hover{color:var(--text)}
 #tab-phone:checked ~ .tab-bar label[for="tab-phone"],
 #tab-pc:checked ~ .tab-bar label[for="tab-pc"],
-#tab-lsp:checked ~ .tab-bar label[for="tab-lsp"]{background:var(--surface); border-color:var(--border); color:var(--teal)}
+#tab-lsp:checked ~ .tab-bar label[for="tab-lsp"],
+#tab-root:checked ~ .tab-bar label[for="tab-root"]{background:var(--surface); border-color:var(--border); color:var(--teal)}
 .tab-panel{display:none; padding-top:20px}
 #tab-phone:checked ~ .panel-phone,
 #tab-pc:checked ~ .panel-pc,
-#tab-lsp:checked ~ .panel-lsp{display:block}
+#tab-lsp:checked ~ .panel-lsp,
+#tab-root:checked ~ .panel-root{display:block}
 
 /* ---------- faq ---------- */
 details{background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:0 18px; margin-bottom:10px}
@@ -418,7 +420,7 @@ footer{border-top:1px solid var(--border); padding:36px 0 46px; font-size:13px; 
               <tr><th>手机</th><td>Android 8.0（API 26）以上，具备蓝牙</td></tr>
               <tr><th>天猫校园</th><td>已登录、已绑定该门锁，<b>能正常开锁</b></td></tr>
               <tr><th>TmallKey</th><td>从本页上方下载 APK 安装，或去 <a href="https://github.com/lmc2007/TMallKey/releases" rel="noopener">Releases</a></td></tr>
-              <tr><th>补丁版天猫校园</th><td><b>方式三（推荐）</b>需要，见下文与本页下载区；装了它就不需要 Shizuku</td></tr>
+              <tr><th>补丁版天猫校园</th><td><b>方式三</b>需要，见下文与本页下载区；装了它就不需要 Shizuku</td></tr>
               <tr><th>Shizuku</th><td>只有「方式一」需要，见下文</td></tr>
             </tbody>
           </table>
@@ -430,16 +432,39 @@ footer{border-top:1px solid var(--border); padding:36px 0 46px; font-size:13px; 
         </div>
 
         <h3>第 1 步 · 拿到凭证</h3>
-        <p>钥匙是服务端按门下发的，只有天猫校园知道、也只会下发给它。所以要「拿」到钥匙，就得让它自己开一次锁，同时把过程记下来。三条路任选其一 —— <b>推荐方式三（补丁版）</b>，装完点一次开锁就完事。</p>
+        <p>钥匙是服务端按门下发的，只有天猫校园知道、也只会下发给它。所以要「拿」到钥匙，就得让它自己开一次锁，同时把过程记下来。有 root 走 <b>root 一键抓取</b>；没 root 用方式三（补丁版天猫校园）。</p>
 
         <div class="tabs">
-          <input type="radio" name="grab" id="tab-lsp" checked>
+          <input type="radio" name="grab" id="tab-root" checked>
+          <input type="radio" name="grab" id="tab-lsp">
           <input type="radio" name="grab" id="tab-phone">
           <input type="radio" name="grab" id="tab-pc">
           <div class="tab-bar">
-            <label for="tab-lsp">方式三 · 补丁版天猫校园（推荐）</label>
+            <label for="tab-root">root 一键抓取（推荐）</label>
+            <label for="tab-lsp">方式三 · 补丁版天猫校园</label>
             <label for="tab-phone">方式一 · 手机 App 抓取</label>
             <label for="tab-pc">方式二 · 电脑 adb 抓取</label>
+          </div>
+
+          <div class="tab-panel panel-root">
+            <p>手机已 root（KernelSU / Magisk）时的最短路径：<b>一次抓齐门锁钥匙和饮水登录态</b>。
+            不需要 Shizuku、不需要电脑、不需要补丁版。</p>
+
+            <h4>① 在 root 管理器里允许 TmallKey</h4>
+            <p>打开 KernelSU / Magisk → 超级用户 → 给 TmallKey 授权。
+            （fkTM 首次点抓取时也会自动弹授权框，允许即可。）</p>
+
+            <h4>② 点「root 抓取」，去开一次门</h4>
+            <p>TmallKey → 门锁页 → 「+ 添加门锁凭证」→ 点「<b>root 抓取</b>」按钮，
+            然后切到天猫校园<b>点一次开锁</b>。开锁被检测到后自动完成：</p>
+            <ul>
+              <li>门锁钥匙 → 自动填入下方表单，确认后点「保存」；</li>
+              <li>饮水登录态 → 自动导入（接水功能立即可用）。</li>
+            </ul>
+
+            <h4>③ 开锁后 4 分钟内没等到日志？</h4>
+            <p>确认天猫校园里能正常开锁（锁没电、蓝牙没开都会导致没日志），
+            然后回到 TmallKey 再点一次「root 抓取」。</p>
           </div>
 
           <div class="tab-panel panel-lsp">
@@ -551,16 +576,17 @@ macAddress    : AA:BB:CC:DD:EE:FF</code></pre>
           </div>
         </div>
 
-        <h4>两种方式怎么选</h4>
+        <h4>方式怎么选</h4>
         <div class="tbl-wrap">
           <table class="tbl">
-            <thead><tr><th></th><th>方式一 · 手机 App</th><th>方式二 · 电脑 adb</th></tr></thead>
+            <thead><tr><th></th><th>root 一键抓取</th><th>方式一 · 手机 App</th><th>方式二 · 电脑 adb</th></tr></thead>
             <tbody>
-              <tr><th>需要电脑</th><td>否</td><td>是</td></tr>
-              <tr><th>需要 root</th><td>否</td><td>否</td></tr>
-              <tr><th>需要 Shizuku</th><td><b>是</b>（并保持运行）</td><td>否</td></tr>
-              <tr><th>主要风险</th><td>系统后台冻结导致结果延迟显示或抓取不到</td><td>安装驱动、网络访问较慢</td></tr>
-              <tr><th>适用</th><td>会用 Shizuku</td><td>排障、或不想装 Shizuku</td></tr>
+              <tr><th>需要电脑</th><td>否</td><td>否</td><td>是</td></tr>
+              <tr><th>需要 root</th><td><b>是</b></td><td>否</td><td>否</td></tr>
+              <tr><th>需要 Shizuku</th><td>否</td><td><b>是</b>（并保持运行）</td><td>否</td></tr>
+              <tr><th>同时拿饮水登录态</th><td><b>是</b></td><td>否</td><td>否</td></tr>
+              <tr><th>主要风险</th><td>需在 root 管理器里授权 TmallKey</td><td>系统后台冻结导致结果延迟显示或抓取不到</td><td>安装驱动、网络访问较慢</td></tr>
+              <tr><th>适用</th><td>已 root 的手机（推荐）</td><td>会用 Shizuku</td><td>排障、或前两种都不行</td></tr>
             </tbody>
           </table>
         </div>
