@@ -57,8 +57,11 @@ import com.fktm.app.credential.ShizukuLogcatGrabber
 import com.fktm.app.update.UpdateSources
 import com.fktm.app.vm.UnlockState
 import com.fktm.app.vm.UnlockViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.fktm.app.credential.RootGrabber
 import org.json.JSONObject
 import rikka.shizuku.Shizuku
 
@@ -166,9 +169,6 @@ fun MainScreen(
             )
         }
 
-        // —— 测试分支：MV 锁（掌门神通）在线开锁 ——
-        Spacer(Modifier.height(14.dp))
-        MvTestCard(onRequestPermissions = onRequestPermissions)
 
         Spacer(Modifier.height(18.dp))
         HorizontalDivider()
@@ -414,6 +414,118 @@ private sealed interface GrabState {
 }
 
 /**
+ * root 一键抓取 —— 比 Shizuku 那条更省事：一次按钮同时拿「门锁钥匙 + 饮水登录态」。
+ *
+ * ① `su -M` 读天猫校园 WebView cookie 库 → 存为本机登录态（Keystore 加密）
+ * ② `su -M` 流式监听 logcat → 用户去开一次门 → activationKey 填入表单
+ *
+ * 无 root 时给出明确提示并退回 Shizuku 方式。
+ */
+@Composable
+private fun RootGrabSection(
+    onHit: (LogcatParser.Hit) -> Unit,
+    onEnsureNotificationPermission: () -> Unit,
+) {
+    var state by remember { mutableStateOf<GrabState>(GrabState.Idle) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    fun start() {
+        scope.launch {
+            if (!RootGrabber.hasRoot()) {
+                state = GrabState.Error(
+                    "root 不可用（su 未授权或不存在）。请用下方的 Shizuku 方式抓取，" +
+                        "或先在 KernelSU/Magisk 里允许 TmallKey。",
+                )
+                return@launch
+            }
+            onEnsureNotificationPermission()
+            GrabForegroundService.start(context)
+            state = GrabState.Running
+            try {
+                // ① 登录态（快，秒级）
+                val cookieMsg = try {
+                    val jar = com.fktm.app.water.WaterSession.importFromDevice(context)
+                    com.fktm.app.water.WaterSession.adopt(context, jar)
+                    val cmOk = withContext(Dispatchers.IO) {
+                        com.fktm.app.water.WaterSession.campusProbeOk(jar)
+                    }
+                    com.fktm.app.water.WaterDiag.log(
+                        context, "rootGrab",
+                        com.fktm.app.water.WaterDiag.cookieSummary(jar) + " cm=$cmOk",
+                    )
+                    val acc = com.fktm.app.water.WaterSession
+                        .maskAccount(com.fktm.app.water.WaterSession.accountId(jar))
+                    "登录态已导入（$acc）" + if (!cmOk) {
+                        "；会话未激活：去天猫校园打开一次「智能宿舍」页，再到饮水页重新导入"
+                    } else ""
+                } catch (e: Throwable) {
+                    com.fktm.app.water.WaterDiag.log(context, "rootGrab", "cookie fail ${e.message}")
+                    "登录态导入失败（${e.message}）"
+                }
+
+                // ② 钥匙（用户去开一次门，最长 4 分钟）
+                val hit = RootGrabber.captureKey(timeoutMs = 240_000L)
+                state = when {
+                    hit == null -> GrabState.Error("4 分钟内没等到开锁日志。$cookieMsg")
+                    else -> {
+                        onHit(hit)
+                        if (hit.isComplete) {
+                            GrabState.Info("钥匙已抓到并填入下方表单。$cookieMsg")
+                        } else {
+                            GrabState.Info("已抓到钥匙，但日志里没有门锁地址，请手动填写。$cookieMsg")
+                        }
+                    }
+                }
+            } finally {
+                GrabForegroundService.stop(context)
+            }
+        }
+    }
+
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+        ),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Text("root 一键抓取（钥匙 + 登录态）", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "有 root 时推荐这个：点一下按钮，先自动导入天猫校园的登录态（供饮水功能），\n" +
+                    "然后监听日志 —— 去天猫校园点一次开锁，回来钥匙就自动填进表单。",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+            )
+            Spacer(Modifier.height(10.dp))
+            Button(
+                onClick = { start() },
+                enabled = state !is GrabState.Running,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    if (state is GrabState.Running) "抓取中…（去天猫校园开一次门）" else "root 抓取（钥匙 + 登录态）",
+                    fontSize = 14.sp,
+                )
+            }
+            when (val s = state) {
+                is GrabState.Info -> {
+                    Spacer(Modifier.height(8.dp))
+                    Text(s.msg, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                }
+                is GrabState.Error -> {
+                    Spacer(Modifier.height(8.dp))
+                    Text(s.msg, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                }
+                else -> {}
+            }
+        }
+    }
+}
+
+/**
  * 自动抓取凭证 —— 走 Shizuku，在本机以 shell 身份读 logcat。
  *
  * 等价于在电脑上跑 `fktm/p0_capture.bat`，只是把整套流程搬进了 App：
@@ -598,6 +710,19 @@ private fun ImportPanel(
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
             )
             Spacer(Modifier.height(12.dp))
+
+            RootGrabSection(
+                onHit = { hit ->
+                    key = hit.activationKey
+                    hit.macAddress?.let { address = it }
+                    error = null
+                },
+                onEnsureNotificationPermission = onEnsureNotificationPermission,
+            )
+
+            Spacer(Modifier.height(14.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(14.dp))
 
             AutoGrabSection(
                 onHit = { hit ->
