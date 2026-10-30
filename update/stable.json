@@ -2,7 +2,16 @@
   "channel": "stable",
   "versionName": "2.1.1",
   "versionCode": 12,
-  "isReady": false,
+  "isReady": true,
   "releaseNotes": "支持MV锁预连接",
-  "assets": []
+  "releaseUrl": "https://github.com/lmc2007/TMallKey/releases/tag/v2.1.1",
+  "assets": [
+    {
+      "type": "universal-apk",
+      "platform": "android",
+      "url": "https://github.com/lmc2007/TMallKey/releases/download/v2.1.1/TMKey-2.1.1.apk",
+      "sha256": "f2f466971d111d7883b04cb0df2137fba4c18a323c518da18e57d3dc7d9740d7",
+      "size": 2544410
+    }
+  ]
 }
