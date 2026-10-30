@@ -491,11 +491,10 @@ private fun RootGrabSection(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(14.dp)) {
-            Text("root 一键抓取（钥匙 + 登录态）", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text("root 抓取", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             Spacer(Modifier.height(4.dp))
             Text(
-                "有 root 时推荐这个：点一下按钮，先自动导入天猫校园的登录态（供饮水功能），\n" +
-                    "然后监听日志 —— 去天猫校园点一次开锁，回来钥匙就自动填进表单。",
+                "支持快速抓取登录态与宿舍钥匙；MV 锁的唯一抓取方式。",
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
             )
@@ -506,7 +505,7 @@ private fun RootGrabSection(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
-                    if (state is GrabState.Running) "抓取中…（去天猫校园开一次门）" else "root 抓取（钥匙 + 登录态）",
+                    if (state is GrabState.Running) "抓取中…（去天猫校园开一次门）" else "root 抓取",
                     fontSize = 14.sp,
                 )
             }
