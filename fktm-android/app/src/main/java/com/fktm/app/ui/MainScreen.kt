@@ -166,6 +166,10 @@ fun MainScreen(
             )
         }
 
+        // —— 测试分支：MV 锁（掌门神通）在线开锁 ——
+        Spacer(Modifier.height(14.dp))
+        MvTestCard(onRequestPermissions = onRequestPermissions)
+
         Spacer(Modifier.height(18.dp))
         HorizontalDivider()
         Spacer(Modifier.height(10.dp))
