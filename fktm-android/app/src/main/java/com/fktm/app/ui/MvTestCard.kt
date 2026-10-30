@@ -86,13 +86,23 @@ fun MvTestCard(onRequestPermissions: () -> Unit) {
                                 if (jar == null || WaterSession.accountId(jar).isBlank()) {
                                     error("没有登录态：先到「饮水」页点一次「导入登录态」")
                                 }
+                                com.fktm.app.water.WaterDiag.log(
+                                    context, "mv",
+                                    "mac=$normalized cookies=${jar.size} un=${WaterSession.accountId(jar)}",
+                                )
                                 status = "① 拉取开锁数据…"
                                 val api = withContext(Dispatchers.IO) { MvLockApi(jar) }
                                 val d = withContext(Dispatchers.IO) { api.fetchUnlockData(normalized) }
+                                com.fktm.app.water.WaterDiag.log(
+                                    context, "mv", "data ok dev=${d.deviceName} enc=${d.encryptData.take(24)}…",
+                                )
                                 status = "② BLE 连接 ${d.deviceName.ifBlank { normalized }}…"
                                 val resp = MvBleClient.unlock(context, d.macId, d.encryptData)
                                 status = "✅ 指令已写入，锁回包: $resp"
                             } catch (e: Throwable) {
+                                // 完整响应体落诊断（CE003 这类服务端码要看原始 payload 才能定位）
+                                val detail = (e as? com.fktm.app.water.MtopError)?.payload?.take(400) ?: e.message
+                                com.fktm.app.water.WaterDiag.log(context, "mv", "FAIL ${e.javaClass.simpleName} $detail")
                                 status = "❌ ${e.message}"
                             } finally {
                                 busy = false

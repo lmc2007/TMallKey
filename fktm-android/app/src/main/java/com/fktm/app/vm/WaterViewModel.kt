@@ -12,6 +12,7 @@ import com.fktm.app.water.MtopError
 import com.fktm.app.water.QrCodec
 import com.fktm.app.water.WaterApi
 import com.fktm.app.water.WaterDevice
+import android.content.Intent
 import com.fktm.app.water.WaterDiag
 import com.fktm.app.water.WaterDevices
 import com.fktm.app.water.CookiePuller
@@ -204,6 +205,9 @@ class WaterViewModel : ViewModel() {
     }
 
     private var seenImportAt = 0L
+
+    /** CM 会话未激活时置 true：拉起过天猫校园宿舍页，等用户回来重新导入。 */
+    private var pendingActivation = false
     private var appScope: Context? = null
 
     /** 登录页返回后调用。 */
@@ -232,6 +236,26 @@ class WaterViewModel : ViewModel() {
     private fun probeCampusUser(context: Context) {
         val client = api ?: return
         viewModelScope.launch {
+            // CM 层探测：cookie2 没被官方版 sync 过时（重装/重登后未打开过校园页面），
+            // member.app.user.get 会回「用户未登录」，此时 water/zmst 全挂。
+            val jar = WaterSession.cached() ?: return@launch
+            val cmOk = withContext(Dispatchers.IO) { WaterSession.campusProbeOk(jar) }
+            WaterDiag.log(context.applicationContext, "cmProbe", if (cmOk) "OK" else "未激活")
+            if (!cmOk) {
+                val launched = launchTmallDormPage(context.applicationContext)
+                pendingActivation = launched
+                state = if (launched) {
+                    state.copy(
+                        status = "会话未激活：已自动打开天猫校园的宿舍页，等它加载完回到本页即可自动完成",
+                    )
+                } else {
+                    state.copy(
+                        status = "",
+                        error = "会话未激活：请手动打开天猫校园的「智能宿舍」页一次，再回来点导入",
+                    )
+                }
+                return@launch
+            }
             val err = withContext(Dispatchers.IO) { client.selfCheck() }
             WaterDiag.log(context.applicationContext, "selfCheck", if (err == null) "OK" else err)
             Log.d(TAG, "water: selfCheck -> ${err ?: "OK"}")
@@ -241,6 +265,37 @@ class WaterViewModel : ViewModel() {
                 state.copy(status = "已导入，但自检没通过", error = err)
             }
         }
+    }
+
+    /**
+     * 拉起天猫校园的宿舍 H5 页（CampusWebActivity）。
+     *
+     * 页面加载时 H5 的 UserStore 走 WindVane 调 native mtop，native 会把
+     * **带 CM 会话的 cookie2 sync 进 WebView CookieManager** —— 之后再导入就激活了。
+     * url/extra 名逆向自 CampusWebActivity 的启动参数（2026-10-30 实测有效）。
+     */
+    private fun launchTmallDormPage(context: Context): Boolean = runCatching {
+        val intent = Intent()
+            .setClassName("com.tmall.campus.and", "com.tmall.campus.bizwebview.ui.CampusWebActivity")
+            .putExtra(
+                "url",
+                "https://biz.confong.cn/app/tmall-xiaoyuan/campus-dormitory-m/home" +
+                    "?hideNavigator=true&loadType=normal&loginRequired=true&statusBarMode=dark",
+            )
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+        true
+    }.getOrElse {
+        WaterDiag.log(context, "activate", "拉起天猫校园失败: ${it.message}")
+        false
+    }
+
+    /** 页面 ON_RESUME 时调用：刚拉起过激活页则自动重新导入。 */
+    fun resumeAfterActivation(context: Context) {
+        if (!pendingActivation) return
+        pendingActivation = false
+        WaterDiag.log(context.applicationContext, "activate", "回到页面，重新导入")
+        importFromDevice(context)
     }
 
     fun logout(context: Context) {

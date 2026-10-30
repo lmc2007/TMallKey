@@ -67,6 +67,7 @@ fun WaterScreen(
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 vm.syncIfImported(context)
+                vm.resumeAfterActivation(context)
                 vm.syncFromTmall(context)      // 免 root：从天猫校园进程拉登录态
             }
         }
