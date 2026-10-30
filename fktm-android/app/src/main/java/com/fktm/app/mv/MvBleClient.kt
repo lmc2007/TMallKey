@@ -127,15 +127,20 @@ object MvBleClient {
 
     /** 断开并释放。任何时刻可调。 */
     fun close() {
-        handler.post {
-            runCatching { gatt?.disconnect() }
-            handler.postDelayed({ runCatching { gatt?.close() } }, 400)
-            gatt = null
-            writeChar = null
-            readyMac = null
-            isReady = false
-            failConnect("已断开")
-            failWrite("已断开")
+        // 只清自己捕获的旧连接 —— 迟到的清理块绝不能碰 close() 之后新建的连接
+        // （否则预连接/重连场景下，新 gatt 会被上一轮的清理 post 清空 → 开锁报「未连接」）
+        val old = gatt
+        gatt = null
+        writeChar = null
+        readyMac = null
+        isReady = false
+        failConnect("已断开")
+        failWrite("已断开")
+        if (old != null) {
+            handler.post {
+                runCatching { old.disconnect() }
+                handler.postDelayed({ runCatching { old.close() } }, 400)
+            }
         }
     }
 
@@ -161,12 +166,15 @@ object MvBleClient {
                 BluetoothProfile.STATE_CONNECTED -> g.discoverServices()
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     g.close()
-                    gatt = null
-                    writeChar = null
-                    readyMac = null
-                    isReady = false
-                    failConnect("连接断开")
-                    failWrite("连接断开")
+                    // 身份守卫：旧连接的断开事件不许清掉新连接的状态
+                    if (g === gatt) {
+                        gatt = null
+                        writeChar = null
+                        readyMac = null
+                        isReady = false
+                        failConnect("连接断开")
+                        failWrite("连接断开")
+                    }
                 }
             }
         }
@@ -202,6 +210,7 @@ object MvBleClient {
         }
 
         private fun markReady(g: BluetoothGatt) {
+            if (g !== gatt) return   // 迟到的回调不认
             readyMac = g.device?.address
             isReady = true
             connectCont?.let { c ->
