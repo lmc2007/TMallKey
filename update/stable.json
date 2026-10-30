@@ -2,7 +2,16 @@
   "channel": "stable",
   "versionName": "2.0.1",
   "versionCode": 10,
-  "isReady": false,
+  "isReady": true,
   "releaseNotes": "门锁 hook 覆盖 V1/V2/VocLockManager + bat 加无过滤回退提示",
-  "assets": []
+  "releaseUrl": "https://github.com/lmc2007/TMallKey/releases/tag/v2.0.1",
+  "assets": [
+    {
+      "type": "universal-apk",
+      "platform": "android",
+      "url": "https://github.com/lmc2007/TMallKey/releases/download/v2.0.1/TMKey-2.0.1.apk",
+      "sha256": "6dc00e653e8bef4547d94af53f55353a2c214ee959ffe4c33611770aae27c42f",
+      "size": 2544414
+    }
+  ]
 }
