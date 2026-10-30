@@ -47,6 +47,9 @@ echo.
 echo [*] quick check:
 findstr /C:"activationKey" "%OUT%" >nul 2>nul
 if errorlevel 1 echo     [!] no activationKey line found -- capture may be incomplete.
+if errorlevel 1 echo     [i] your Tmall Campus app version may be newer than 5.0.0 (log format changed).
+if errorlevel 1 echo     [i] fallback: run  adb logcat -v time ^> full_log.txt  , unlock once, Ctrl+C,
+if errorlevel 1 echo     [i] then send full_log.txt to the developer (contains no password, but review before sharing).
 if not errorlevel 1 echo     [ok] activationKey line present.
 echo.
 echo [*] running verify...

@@ -69,28 +69,45 @@ class Hook : IXposedHookLoadPackage {
     private val doorLocks = ConcurrentHashMap<String, String>()
 
     private fun hookDoorUnlock(classLoader: ClassLoader) {
-        try {
-            XposedHelpers.findAndHookMethod(
-                "com.tmall.campus.doorlock.VocLockHelperV2",
-                classLoader,
-                "unlock",
-                "android.content.Context",
-                "com.tmall.campus.doorlock.JSBParams",
-                "com.tmall.campus.doorlock.UnlockCallback",
-                object : XC_MethodHook() {
-                    override fun afterHookedMethod(param: MethodHookParam) {
-                        val jsb = param.args.getOrNull(1) ?: return
-                        val mac = XposedHelpers.callMethod(jsb, "getMacAddress") as? String ?: return
-                        val key = XposedHelpers.callMethod(jsb, "getActivationKey") as? String ?: return
-                        if (mac.isBlank() || key.isBlank()) return
-                        doorLocks[mac] = key
-                        XposedBridge.log("[tmxydump] doorlock captured mac=$mac keyLen=${key.length}")
-                    }
-                },
+        // V1 和 V2 的 unlock 签名完全一致：unlock(Context, JSBParams, UnlockCallback)。
+        // 5.0.0 的 H5 桥固定走 V2，但旧锁固件 / 新版 App 可能走 V1 —— 两个都挂，按类存在与否容错。
+        var hooked = 0
+        for (cls in listOf(
+            "com.tmall.campus.doorlock.VocLockHelperV2",
+            "com.tmall.campus.doorlock.VocLockHelper",
+            "com.tmall.campus.doorlock.session.VocLockManager",
+        )) {
+            try {
+                XposedHelpers.findAndHookMethod(
+                    cls,
+                    classLoader,
+                    "unlock",
+                    "android.content.Context",
+                    "com.tmall.campus.doorlock.JSBParams",
+                    "com.tmall.campus.doorlock.UnlockCallback",
+                    object : XC_MethodHook() {
+                        override fun afterHookedMethod(param: MethodHookParam) {
+                            val jsb = param.args.getOrNull(1) ?: return
+                            val mac = XposedHelpers.callMethod(jsb, "getMacAddress") as? String ?: return
+                            val key = XposedHelpers.callMethod(jsb, "getActivationKey") as? String ?: return
+                            if (mac.isBlank() || key.isBlank()) return
+                            doorLocks[mac] = key
+                            XposedBridge.log("[tmxydump] doorlock captured ($cls) mac=$mac keyLen=${key.length}")
+                        }
+                    },
+                )
+                hooked++
+                XposedBridge.log("[tmxydump] $cls.unlock hooked")
+            } catch (t: Throwable) {
+                // 类不存在 = 该版本没有这个实现，正常；把情况记下来便于排障
+                XposedBridge.log("[tmxydump] $cls not hooked: ${t.message}")
+            }
+        }
+        if (hooked == 0) {
+            XposedBridge.log(
+                "[tmxydump] WARN: no VocLockHelper found — 天猫校园版本可能已变更，" +
+                    "请把「我的-关于」里的版本号反馈给开发者",
             )
-            XposedBridge.log("[tmxydump] VocLockHelperV2.unlock hooked")
-        } catch (t: Throwable) {
-            XposedBridge.log("[tmxydump] hook door unlock failed: $t")
         }
     }
 
