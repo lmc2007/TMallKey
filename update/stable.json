@@ -2,7 +2,16 @@
   "channel": "stable",
   "versionName": "2.1.0",
   "versionCode": 11,
-  "isReady": false,
+  "isReady": true,
   "releaseNotes": "test",
-  "assets": []
+  "releaseUrl": "https://github.com/lmc2007/TMallKey/releases/tag/v2.1.0",
+  "assets": [
+    {
+      "type": "universal-apk",
+      "platform": "android",
+      "url": "https://github.com/lmc2007/TMallKey/releases/download/v2.1.0/TMKey-2.1.0.apk",
+      "sha256": "e07484e5aa11c6fa7c89698b2f05cdf3b517cd2524c3cc259e67f9e36d19a9ab",
+      "size": 2544414
+    }
+  ]
 }
