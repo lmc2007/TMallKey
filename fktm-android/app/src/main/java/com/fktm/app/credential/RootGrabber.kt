@@ -30,14 +30,24 @@ object RootGrabber {
     }.getOrDefault(false)
 
     /**
-     * 流式监听 logcat，命中 activationKey 即返回。
+     * 流式监听 logcat，VOC/MV 谁先出现算谁。
      *
-     * `logcat -T 1` 只看新日志（避免历史里旧钥匙误命中）；命中前一直挂着，
-     * 用户切到天猫校园开一次门即可。硬超时 [timeoutMs]。
+     *  · VOC：`VocLockHelperV2` 打出 `unlock: macAddress… activationKey…` → 解析出钥匙
+     *  · MV：`FastBle` 打出 `mac: XX:XX…`（掌门神通锁连接事件，设备名 MVL 开头）
+     *    —— MV 没有静态钥匙，抓到 MAC 即可（开锁指令由 fkTM 联网现取）
      */
-    suspend fun captureKey(timeoutMs: Long = 240_000L): LogcatParser.Hit? =
+    sealed interface Outcome {
+        data class VocHit(val hit: LogcatParser.Hit) : Outcome
+        data class MvHit(val mac: String) : Outcome
+        data object None : Outcome
+    }
+
+    suspend fun capture(timeoutMs: Long = 240_000L): Outcome =
         withContext(Dispatchers.IO) {
-            val proc = ProcessBuilder("su", "-M", "-c", "logcat -T 1 -s VocLockHelperV2:V")
+            val proc = ProcessBuilder(
+                "su", "-M", "-c",
+                "logcat -T 1 -s VocLockHelperV2:V FastBle:V",
+            )
                 .redirectErrorStream(false)
                 .start()
             try {
@@ -45,14 +55,24 @@ object RootGrabber {
                     proc.inputStream.bufferedReader().use { reader ->
                         var line = reader.readLine()
                         while (line != null) {
-                            LogcatParser.parse(line)?.let { return@withTimeoutOrNull it }
+                            if ("FastBle" in line) {
+                                MAC_RE.find(line)?.let { m ->
+                                    return@withTimeoutOrNull Outcome.MvHit(
+                                        m.value.uppercase(),
+                                    )
+                                }
+                            } else if ("VocLockHelperV2" in line) {
+                                LogcatParser.parse(line)?.let { return@withTimeoutOrNull Outcome.VocHit(it) }
+                            }
                             line = reader.readLine()
                         }
                         null
                     }
-                }
+                } ?: Outcome.None
             } finally {
                 runCatching { proc.destroy() }
             }
         }
+
+    private val MAC_RE = Regex("""\b[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}\b""")
 }

@@ -68,7 +68,8 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun prewarm() {
         if (state == UnlockState.Working) return
-        val cred = store.primary() ?: return
+        // 预热只对 VOC 锁有意义（BLE 建连复用）；MV 锁走在线模式，没有可预热的连接
+        val cred = store.load().firstOrNull { !it.isMv } ?: return
         if (client.isReady && client.readyAddress == cred.address) return
         prewarmJob?.cancel()
         prewarmJob = viewModelScope.launch {
@@ -81,6 +82,45 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
             } finally {
                 // 预热期间 App 已退到后台 → 立刻交还连接，不做后台驻留
                 if (!client.isAppForeground) client.close()
+            }
+        }
+    }
+
+    /**
+     * MV 锁（掌门神通）在线开锁：联网取一次性开锁帧 → BLE 写入。
+     *
+     * 会话来自 root 导入的官方版登录态（CM ✅）；补丁版会话没有 CM 档案，
+     * 服务端会回 CE003 —— 这是「MV 锁只能 root」的根本原因。
+     */
+    private fun mvUnlock(cred: LockCredential) {
+        state = UnlockState.Working
+        logText = ""
+        batteryText = null
+        viewModelScope.launch {
+            val started = System.currentTimeMillis()
+            val result = try {
+                val jar = com.fktm.app.water.WaterSession.cached()
+                    ?: error("没有登录态：先用「root 抓取」导入一次")
+                val api = com.fktm.app.mv.MvLockApi(java.util.LinkedHashMap(jar))
+                val data = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    api.fetchUnlockData(cred.address)
+                }
+                val resp = com.fktm.app.mv.MvBleClient.unlock(
+                    getApplication(),
+                    data.macId,
+                    data.encryptData,
+                )
+                true to "开锁指令已写入${if (resp.isNotBlank()) "，锁回包 $resp" else ""}"
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                false to (e.message ?: e.javaClass.simpleName)
+            }
+            val cost = System.currentTimeMillis() - started
+            state = if (result.first) {
+                UnlockState.Success("${result.second}（${cost}ms）")
+            } else {
+                UnlockState.Failure("${result.second}（${cost}ms）")
             }
         }
     }
@@ -98,6 +138,10 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
     /** 开锁主流程：后台线程跑 GATT，不阻塞 UI。 */
     fun unlock(cred: LockCredential) {
         if (state == UnlockState.Working) return
+        if (cred.isMv) {
+            mvUnlock(cred)
+            return
+        }
         state = UnlockState.Working
         logText = ""
         batteryText = null

@@ -93,6 +93,7 @@ class CredentialStore(context: Context) {
                     put("activationKey", c.activationKey)
                     put("serviceUuid", c.serviceUuid)
                     put("deviceName", c.deviceName)
+                    put("type", c.type)
                 }
             )
         }
@@ -106,9 +107,10 @@ class CredentialStore(context: Context) {
             LockCredential(
                 name = o.optString("name", "宿舍门"),
                 address = o.getString("address"),
-                activationKey = o.getString("activationKey"),
+                activationKey = o.optString("activationKey", ""),
                 serviceUuid = o.optString("serviceUuid", com.fktm.app.protocol.VocProtocol.SERVICE_UUID),
                 deviceName = o.optString("deviceName", com.fktm.app.protocol.VocProtocol.VOC_LOCK_TAG),
+                type = o.optString("type", com.fktm.app.credential.LockCredential.TYPE_VOC),
             )
         }
     } catch (e: Exception) {

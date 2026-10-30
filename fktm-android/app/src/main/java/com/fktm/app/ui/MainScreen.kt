@@ -163,6 +163,16 @@ fun MainScreen(
                     vm.importCredential(cred)
                     showImport = false
                 },
+                onMvDetected = { mac ->
+                    vm.importCredential(
+                        LockCredential(
+                            name = "MV 锁 ${mac.takeLast(5)}",
+                            address = mac,
+                            activationKey = "",
+                            type = LockCredential.TYPE_MV,
+                        ),
+                    )
+                },
                 showCancel = locks.isNotEmpty(),
                 onCancel = { showImport = false },
                 onEnsureNotificationPermission = onEnsureNotificationPermission,
@@ -424,6 +434,7 @@ private sealed interface GrabState {
 @Composable
 private fun RootGrabSection(
     onHit: (LogcatParser.Hit) -> Unit,
+    onMvDetected: (String) -> Unit,
     onEnsureNotificationPermission: () -> Unit,
 ) {
     var state by remember { mutableStateOf<GrabState>(GrabState.Idle) }
@@ -446,18 +457,7 @@ private fun RootGrabSection(
                 // ① 先等开锁：用户此刻手里可能还没打开天猫校园页面，
                 //    这时读到的 cookie2 大概率是未激活的 —— 等开锁日志出现
                 //    （说明用户刚用过天猫校园），再抓 cookie 才是新鲜有效的。
-                val hit = RootGrabber.captureKey(timeoutMs = 240_000L)
-                if (hit == null) {
-                    state = GrabState.Error("4 分钟内没等到开锁日志，已取消。")
-                    return@launch
-                }
-                onHit(hit)
-                val keyMsg = if (hit.isComplete) {
-                    "钥匙已抓到并填入下方表单"
-                } else {
-                    "已抓到钥匙，但日志里没有门锁地址，请手动填写"
-                }
-
+                //    VOC / MV 谁先出现算谁（RootGrabber.Outcome）。
                 // ② 开锁已发生 → 抓 cookie（此刻的 cookie2 刚被 native sync 过，有效）
                 val cookieMsg = try {
                     val jar = com.fktm.app.water.WaterSession.importFromDevice(context)
@@ -479,7 +479,27 @@ private fun RootGrabSection(
                     "登录态导入失败（${e.message}）"
                 }
 
-                state = GrabState.Info("$keyMsg。$cookieMsg")
+                state = when (val outcome = RootGrabber.capture(timeoutMs = 240_000L)) {
+                    is RootGrabber.Outcome.VocHit -> {
+                        onHit(outcome.hit)
+                        val keyMsg = if (outcome.hit.isComplete) {
+                            "钥匙已抓到并填入下方表单"
+                        } else {
+                            "已抓到钥匙，但日志里没有门锁地址，请手动填写"
+                        }
+                        GrabState.Info("$keyMsg。$cookieMsg")
+                    }
+                    is RootGrabber.Outcome.MvHit -> {
+                        // MV 锁（掌门神通）：没有静态钥匙，添加为在线门锁，开锁时联网取帧
+                        onMvDetected(outcome.mac)
+                        com.fktm.app.water.WaterDiag.log(context, "rootGrab", "MV lock ${outcome.mac}")
+                        GrabState.Info(
+                            "检测到 MV 锁（掌门神通），已加入门锁列表。$cookieMsg" +
+                                "—— 每次开锁需联网，在门锁卡片上点「开锁」即可",
+                        )
+                    }
+                    RootGrabber.Outcome.None -> GrabState.Error("4 分钟内没等到开锁日志，已取消。$cookieMsg")
+                }
             } finally {
                 GrabForegroundService.stop(context)
             }
@@ -687,6 +707,7 @@ private fun AutoGrabSection(
 @Composable
 private fun ImportPanel(
     onImport: (LockCredential) -> Unit,
+    onMvDetected: (String) -> Unit,
     showCancel: Boolean,
     onCancel: () -> Unit,
     onEnsureNotificationPermission: () -> Unit,
@@ -719,6 +740,7 @@ private fun ImportPanel(
                     hit.macAddress?.let { address = it }
                     error = null
                 },
+                onMvDetected = onMvDetected,
                 onEnsureNotificationPermission = onEnsureNotificationPermission,
             )
 
