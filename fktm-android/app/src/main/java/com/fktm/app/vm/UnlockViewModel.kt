@@ -113,6 +113,8 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
                 true to "开锁指令已写入${if (resp.isNotBlank()) "，锁回包 $resp" else ""}"
             } catch (e: CancellationException) {
                 throw e
+            } catch (e: com.fktm.app.water.WaterSession.NotLoggedIn) {
+                false to "还没有登录态：用「root 抓取」一键导入（钥匙 + 登录态）"
             } catch (e: Exception) {
                 false to (e.message ?: e.javaClass.simpleName)
             }
