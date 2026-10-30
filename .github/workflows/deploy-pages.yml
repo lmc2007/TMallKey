@@ -52,6 +52,11 @@ jobs:
             exit 1
           fi
           cp fktm/p0_capture.bat docs/p0_capture.bat
+          if [ ! -f fktm/tmxy_check.bat ]; then
+            echo "::error::找不到 fktm/tmxy_check.bat，教程里的下载链接会 404"
+            exit 1
+          fi
+          cp fktm/tmxy_check.bat docs/tmxy_check.bat
           echo "已同步 fktm/p0_capture.bat -> docs/p0_capture.bat"
 
       - name: Setup Pages
