@@ -99,8 +99,8 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val started = System.currentTimeMillis()
             val result = try {
-                val jar = com.fktm.app.water.WaterSession.cached()
-                    ?: error("没有登录态：先用「root 抓取」导入一次")
+                // ensure = 内存 → 加密存储：进程被杀后重开也能拿到会话
+                val jar = com.fktm.app.water.WaterSession.ensure(getApplication())
                 val api = com.fktm.app.mv.MvLockApi(java.util.LinkedHashMap(jar))
                 val data = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     api.fetchUnlockData(cred.address)
