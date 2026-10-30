@@ -443,7 +443,22 @@ private fun RootGrabSection(
             GrabForegroundService.start(context)
             state = GrabState.Running
             try {
-                // ① 登录态（快，秒级）
+                // ① 先等开锁：用户此刻手里可能还没打开天猫校园页面，
+                //    这时读到的 cookie2 大概率是未激活的 —— 等开锁日志出现
+                //    （说明用户刚用过天猫校园），再抓 cookie 才是新鲜有效的。
+                val hit = RootGrabber.captureKey(timeoutMs = 240_000L)
+                if (hit == null) {
+                    state = GrabState.Error("4 分钟内没等到开锁日志，已取消。")
+                    return@launch
+                }
+                onHit(hit)
+                val keyMsg = if (hit.isComplete) {
+                    "钥匙已抓到并填入下方表单"
+                } else {
+                    "已抓到钥匙，但日志里没有门锁地址，请手动填写"
+                }
+
+                // ② 开锁已发生 → 抓 cookie（此刻的 cookie2 刚被 native sync 过，有效）
                 val cookieMsg = try {
                     val jar = com.fktm.app.water.WaterSession.importFromDevice(context)
                     com.fktm.app.water.WaterSession.adopt(context, jar)
@@ -464,19 +479,7 @@ private fun RootGrabSection(
                     "登录态导入失败（${e.message}）"
                 }
 
-                // ② 钥匙（用户去开一次门，最长 4 分钟）
-                val hit = RootGrabber.captureKey(timeoutMs = 240_000L)
-                state = when {
-                    hit == null -> GrabState.Error("4 分钟内没等到开锁日志。$cookieMsg")
-                    else -> {
-                        onHit(hit)
-                        if (hit.isComplete) {
-                            GrabState.Info("钥匙已抓到并填入下方表单。$cookieMsg")
-                        } else {
-                            GrabState.Info("已抓到钥匙，但日志里没有门锁地址，请手动填写。$cookieMsg")
-                        }
-                    }
-                }
+                state = GrabState.Info("$keyMsg。$cookieMsg")
             } finally {
                 GrabForegroundService.stop(context)
             }
