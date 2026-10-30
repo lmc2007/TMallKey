@@ -68,6 +68,9 @@ class Hook : IXposedHookLoadPackage {
     /** 用户在补丁版天猫校园里每次点「开锁」，这里就多一条（按 mac 去重，保留最新）。 */
     private val doorLocks = ConcurrentHashMap<String, String>()
 
+    /** MV 锁（动态 syncData）：抓到即证明该用户的锁是 MV 型而非 VOC。 */
+    private val mvLocks = ConcurrentHashMap<String, String>()
+
     private fun hookDoorUnlock(classLoader: ClassLoader) {
         // V1 和 V2 的 unlock 签名完全一致：unlock(Context, JSBParams, UnlockCallback)。
         // 5.0.0 的 H5 桥固定走 V2，但旧锁固件 / 新版 App 可能走 V1 —— 两个都挂，按类存在与否容错。
@@ -108,6 +111,36 @@ class Hook : IXposedHookLoadPackage {
                 "[tmxydump] WARN: no VocLockHelper found — 天猫校园版本可能已变更，" +
                     "请把「我的-关于」里的版本号反馈给开发者",
             )
+        }
+
+        // MV 锁（ZMUnlockJsBridge → com.mvlock.supriseble，第二套门锁协议）。
+        // syncData 是服务端签发的动态开锁帧，不能离线复用，但抓到它能确认「锁是 MV 型」，
+        // 同时 fkTM 可把 mac+syncData 转发出去做一次在线开门验证。
+        try {
+            XposedHelpers.findAndHookMethod(
+                "com.tmall.campus.bizwebview.plugin.ZMUnlockJsBridge",
+                classLoader,
+                "unlock",
+                String::class.java,
+                "android.taobao.windvane.jsbridge.WVCallBackContext",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val raw = param.args.getOrNull(0) as? String ?: return
+                        XposedBridge.log("[tmxydump] ZM unlock params: $raw")
+                        runCatching {
+                            val obj = JSONObject(raw)
+                            val mac = obj.optString("macAddress")
+                            val sync = obj.optString("syncData")
+                            if (mac.isNotBlank() && sync.isNotBlank()) {
+                                mvLocks[mac] = sync
+                            }
+                        }
+                    }
+                },
+            )
+            XposedBridge.log("[tmxydump] ZMUnlockJsBridge.unlock hooked")
+        } catch (t: Throwable) {
+            XposedBridge.log("[tmxydump] ZMUnlockJsBridge not hooked: ${t.message}")
         }
     }
 
@@ -237,6 +270,11 @@ class Hook : IXposedHookLoadPackage {
             arr.put(JSONObject().put("mac", mac).put("activationKey", key))
         }
         obj.put("doorlocks", arr)
+        val mv = JSONArray()
+        mvLocks.forEach { (mac, sync) ->
+            mv.put(JSONObject().put("mac", mac).put("syncData", sync))
+        }
+        obj.put("mvlocks", mv)
         return obj.toString()
     }
 
