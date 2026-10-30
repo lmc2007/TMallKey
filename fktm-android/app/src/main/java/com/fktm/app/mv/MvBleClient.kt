@@ -1,29 +1,34 @@
 package com.fktm.app.mv
 
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
-import android.bluetooth.BluetoothDevice
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 /**
- * MV 锁（掌门神通）BLE 客户端 —— 测试版。
+ * MV 锁（掌门神通）BLE 客户端 —— 有状态版，支持预连接。
  *
  * 协议（逆向自 com.mvlock.supriseble，2026-10-30）：
- *  · Service  0000AFF0-…  Write 0000AFF1-…  Notify 0000AFF2-…
- *  · 开锁 = 把服务端下发的 encryptData（hex）**原样写入 AFF1**，听 AFF2 回包
- *  · 本地零加密：帧由服务端做好，App 只是搬运工（与官方 H5 的 MarvelLockUtils.openLock 一致）
+ *  · Service 0000AFF0 / Write AFF1 / Notify AFF2
+ *  · 开锁 = 把服务端下发的 encryptData（hex）原样写入 AFF1，听 AFF2 回包
+ *
+ * 生命周期（与操作员约定）：
+ *  · App 到前台（门锁页 ON_RESUME）→ [ensureConnected] 预连接（连上即订阅通知）
+ *  · 20 秒没开锁 → 断开（计时在 UnlockViewModel 里）
+ *  · 开锁成功 → 保持 10 秒（方便连开/重试）→ 断开
+ *  · [close] 随时可调，任何异常路径都保证连接不悬挂
  */
 object MvBleClient {
 
@@ -34,127 +39,205 @@ object MvBleClient {
 
     private val handler = Handler(Looper.getMainLooper())
 
+    @Volatile
+    private var gatt: BluetoothGatt? = null
+
+    @Volatile
+    private var writeChar: BluetoothGattCharacteristic? = null
+
+    @Volatile
+    var readyMac: String? = null
+        private set
+
+    @Volatile
+    var isReady: Boolean = false
+        private set
+
+    private var connectCont: kotlin.coroutines.Continuation<Unit>? = null
+    private var writeCont: kotlin.coroutines.Continuation<String>? = null
+    private val notifyBuf = StringBuilder()
+
+    /** 已连接且服务/通知就绪（同一 MAC）→ 直接复用。 */
+    fun isConnectedTo(mac: String): Boolean = isReady && readyMac == mac
+
     /**
-     * 连接 → 开服务 → 订阅通知 → 写帧 → 收回包 → 断开。
-     *
-     * @return 锁的回包（hex）。失败抛异常。
+     * 预连接/复用：连接 → 发现服务 → 订阅通知。已连上同一把锁则立即返回。
+     * 超时抛异常（调用方决定要不要提示）；内部保证失败后连接不悬挂。
      */
-    suspend fun unlock(context: Context, mac: String, encryptDataHex: String): String =
-        withTimeout(15_000L) {
+    suspend fun ensureConnected(context: Context, mac: String, timeoutMs: Long = 10_000L) {
+        if (isConnectedTo(mac)) return
+        close()
+        withTimeoutOrNull(timeoutMs) {
+            suspendCancellableCoroutine<Unit> { cont ->
+                connectCont = cont
+                try {
+                    val adapter =
+                        (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+                    if (adapter == null || !adapter.isEnabled) {
+                        failConnect("蓝牙未开启")
+                        return@suspendCancellableCoroutine
+                    }
+                    @SuppressLint("MissingPermission")
+                    val device = adapter.getRemoteDevice(mac)
+                    gatt = device.connectGatt(
+                        context, false, callback, BluetoothDevice.TRANSPORT_LE,
+                    )
+                    cont.invokeOnCancellation { failConnect("已取消") }
+                } catch (t: Throwable) {
+                    failConnect(t.message ?: t.javaClass.simpleName)
+                }
+            }
+        } ?: run {
+            close()
+            error("连接超时（锁不在范围内？）")
+        }
+    }
+
+    /**
+     * 向 AFF1 写一帧开锁指令，等 AFF2 回包（第一包后 450ms 收尾，兼容多包）。
+     * 需先 [ensureConnected]。5 秒没等到回包返回空串（指令已写入）。
+     */
+    suspend fun writeFrame(hex: String): String {
+        val g = gatt ?: error("未连接")
+        if (!isReady) error("连接未就绪")
+        val ch = writeChar ?: error("写特征缺失")
+        notifyBuf.setLength(0)
+        val resp = withTimeoutOrNull(5_000L) {
             suspendCancellableCoroutine { cont ->
-                val frame = hexToBytes(encryptDataHex)
-                var gatt: BluetoothGatt? = null
-                var done = false
-                val notify = StringBuilder()
-
-                fun finish(result: Result<String>) {
-                    if (done) return
-                    done = true
-                    handler.post {
-                        runCatching { gatt?.disconnect() }
-                        handler.postDelayed({ runCatching { gatt?.close() } }, 600)
-                    }
-                    result
-                        .onSuccess { if (cont.isActive) cont.resume(it) }
-                        .onFailure { if (cont.isActive) cont.resumeWithException(it) }
-                }
-
-                fun writeFrame(g: BluetoothGatt, write: BluetoothGattCharacteristic) {
-                    @Suppress("DEPRECATION")
-                    write.value = frame
-                    write.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                    if (!g.writeCharacteristic(write)) finish(Result.failure(IllegalStateException("BLE 写入失败")))
-                }
-
-                val callback = object : BluetoothGattCallback() {
-                    override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
-                        when (newState) {
-                            BluetoothProfile.STATE_CONNECTED -> g.discoverServices()
-                            BluetoothProfile.STATE_DISCONNECTED -> {
-                                g.close()
-                                finish(Result.failure(IllegalStateException("连接断开（未收到锁回包）")))
-                            }
-                        }
-                    }
-
-                    override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
-                        if (status != 0) {
-                            finish(Result.failure(IllegalStateException("服务发现失败 status=$status")))
-                            return
-                        }
-                        val svc = g.getService(SERVICE_UUID)
-                        if (svc == null) {
-                            finish(Result.failure(IllegalStateException("找不到 AFF0 服务——这可能不是 MV 锁")))
-                            return
-                        }
-                        val write = svc.getCharacteristic(WRITE_UUID)
-                        val notifyCh = svc.getCharacteristic(NOTIFY_UUID)
-                        if (write == null || notifyCh == null) {
-                            finish(Result.failure(IllegalStateException("AFF1/AFF2 特征缺失")))
-                            return
-                        }
-                        g.setCharacteristicNotification(notifyCh, true)
-                        val cccd = notifyCh.getDescriptor(CCCD_UUID)
-                        if (cccd != null) {
-                            cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                            if (!g.writeDescriptor(cccd)) writeFrame(g, write)
-                        } else {
-                            writeFrame(g, write)
-                        }
-                    }
-
-                    override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, status: Int) {
-                        if (d.uuid == CCCD_UUID) {
-                            val write = d.characteristic.service.getCharacteristic(WRITE_UUID) ?: return
-                            writeFrame(g, write)
-                        }
-                    }
-
-                    private fun collect(value: ByteArray) {
-                        notify.append(bytesToHex(value))
-                        // 第一包后稍等，收尾包（有些帧回两段）
-                        handler.postDelayed({
-                            finish(Result.success(notify.toString()))
-                        }, 450)
-                    }
-
-                    // Android 13+（compileSdk 36 的回调；老版本不会调它）
-                    override fun onCharacteristicChanged(
-                        g: BluetoothGatt,
-                        characteristic: BluetoothGattCharacteristic,
-                        value: ByteArray,
-                    ) {
-                        if (characteristic.uuid == NOTIFY_UUID) collect(value)
-                    }
-
-                    // Android 12 及以下
-                    @Deprecated("Deprecated in Java")
-                    override fun onCharacteristicChanged(
-                        g: BluetoothGatt,
-                        characteristic: BluetoothGattCharacteristic,
-                    ) {
-                        @Suppress("DEPRECATION")
-                        val v = characteristic.value ?: return
-                        if (characteristic.uuid == NOTIFY_UUID) collect(v)
-                    }
-                }
-
-                val adapter = (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
-                if (adapter == null || !adapter.isEnabled) {
-                    cont.resumeWithException(IllegalStateException("蓝牙未开启"))
-                    return@suspendCancellableCoroutine
-                }
+                writeCont = cont
+                @Suppress("DEPRECATION")
+                ch.value = hexToBytes(hex)
+                ch.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
                 @SuppressLint("MissingPermission")
-                val device = adapter.getRemoteDevice(mac)
-                gatt = device.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
+                if (!g.writeCharacteristic(ch)) {
+                    writeCont = null
+                    cont.resumeWithException(IllegalStateException("BLE 写入失败"))
+                }
+            }
+        } ?: ""
+        // 稍等可能的第二包，然后收尾
+        handler.postDelayed({
+            writeCont?.let { c ->
+                writeCont = null
+                c.resume(notifyBuf.toString())
+            }
+        }, 450)
+        return notifyBuf.toString()
+    }
 
-                cont.invokeOnCancellation {
-                    done = true
-                    runCatching { gatt?.disconnect() }
-                    runCatching { gatt?.close() }
+    /** 断开并释放。任何时刻可调。 */
+    fun close() {
+        handler.post {
+            runCatching { gatt?.disconnect() }
+            handler.postDelayed({ runCatching { gatt?.close() } }, 400)
+            gatt = null
+            writeChar = null
+            readyMac = null
+            isReady = false
+            failConnect("已断开")
+            failWrite("已断开")
+        }
+    }
+
+    // ---------------- GATT 回调 ----------------
+
+    private fun failConnect(msg: String) {
+        connectCont?.let { c ->
+            connectCont = null
+            c.resumeWithException(IllegalStateException(msg))
+        }
+    }
+
+    private fun failWrite(msg: String) {
+        writeCont?.let { c ->
+            writeCont = null
+            c.resumeWithException(IllegalStateException(msg))
+        }
+    }
+
+    private val callback = object : BluetoothGattCallback() {
+        override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
+            when (newState) {
+                BluetoothProfile.STATE_CONNECTED -> g.discoverServices()
+                BluetoothProfile.STATE_DISCONNECTED -> {
+                    g.close()
+                    gatt = null
+                    writeChar = null
+                    readyMac = null
+                    isReady = false
+                    failConnect("连接断开")
+                    failWrite("连接断开")
                 }
             }
         }
+
+        override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
+            if (status != 0) {
+                failConnect("服务发现失败 status=$status")
+                return
+            }
+            val svc = g.getService(SERVICE_UUID)
+            val write = svc?.getCharacteristic(WRITE_UUID)
+            val notify = svc?.getCharacteristic(NOTIFY_UUID)
+            if (svc == null || write == null || notify == null) {
+                failConnect("AFF0/AFF1/AFF2 缺失 —— 这可能不是 MV 锁")
+                return
+            }
+            writeChar = write
+            g.setCharacteristicNotification(notify, true)
+            val cccd = notify.getDescriptor(CCCD_UUID)
+            if (cccd != null) {
+                cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                if (!g.writeDescriptor(cccd)) {
+                    // 有些栈不需要等 CCCD 确认也能收包 —— 直接认为就绪
+                    markReady(g)
+                }
+            } else {
+                markReady(g)
+            }
+        }
+
+        override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, status: Int) {
+            if (d.uuid == CCCD_UUID && status == 0) markReady(g)
+        }
+
+        private fun markReady(g: BluetoothGatt) {
+            readyMac = g.device?.address
+            isReady = true
+            connectCont?.let { c ->
+                connectCont = null
+                c.resume(Unit)
+            }
+        }
+
+        private fun collect(value: ByteArray) {
+            notifyBuf.append(bytesToHex(value))
+            writeCont?.let { c ->
+                writeCont = null
+                c.resume(notifyBuf.toString())
+            }
+        }
+
+        // Android 13+（compileSdk 36 的回调；老版本不会调它）
+        override fun onCharacteristicChanged(
+            g: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            value: ByteArray,
+        ) {
+            if (characteristic.uuid == NOTIFY_UUID) collect(value)
+        }
+
+        // Android 12 及以下
+        @Deprecated("Deprecated in Java")
+        override fun onCharacteristicChanged(
+            g: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+        ) {
+            @Suppress("DEPRECATION")
+            val v = characteristic.value ?: return
+            if (characteristic.uuid == NOTIFY_UUID) collect(v)
+        }
+    }
 
     private fun hexToBytes(s: String): ByteArray =
         ByteArray(s.length / 2) { i ->

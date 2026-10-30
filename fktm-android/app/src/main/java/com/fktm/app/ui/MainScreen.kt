@@ -79,7 +79,10 @@ fun MainScreen(
     val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) vm.refresh()
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                vm.refresh()
+                vm.mvPrewarm()   // MV 锁预连接：连上 20s 没开锁自动断开
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }

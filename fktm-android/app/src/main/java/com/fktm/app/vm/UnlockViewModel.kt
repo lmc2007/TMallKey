@@ -87,12 +87,19 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * MV 锁（掌门神通）在线开锁：联网取一次性开锁帧 → BLE 写入。
+     * MV 锁（掌门神通）在线开锁：预连接复用 → 联网取一次性开锁帧 → 写帧。
      *
-     * 会话来自 root 导入的官方版登录态（CM ✅）；补丁版会话没有 CM 档案，
-     * 服务端会回 CE003 —— 这是「MV 锁只能 root」的根本原因。
+     * 连接生命周期：开锁成功后保活 10 秒（连开/重试），到点自动断开。
      */
+    private var mvHoldJob: Job? = null
+
+    @Volatile
+    private var mvBusy = false
+
     private fun mvUnlock(cred: LockCredential) {
+        if (mvBusy) return
+        mvBusy = true
+        mvHoldJob?.cancel()
         state = UnlockState.Working
         logText = ""
         batteryText = null
@@ -102,14 +109,14 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
                 // ensure = 内存 → 加密存储：进程被杀后重开也能拿到会话
                 val jar = com.fktm.app.water.WaterSession.ensure(getApplication())
                 val api = com.fktm.app.mv.MvLockApi(java.util.LinkedHashMap(jar))
+                // 预连接已就绪则 0ms 复用；否则现场建连
+                com.fktm.app.mv.MvBleClient.ensureConnected(
+                    getApplication(), cred.address,
+                )
                 val data = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     api.fetchUnlockData(cred.address)
                 }
-                val resp = com.fktm.app.mv.MvBleClient.unlock(
-                    getApplication(),
-                    data.macId,
-                    data.encryptData,
-                )
+                val resp = com.fktm.app.mv.MvBleClient.writeFrame(data.encryptData)
                 true to "开锁指令已写入${if (resp.isNotBlank()) "，锁回包 $resp" else ""}"
             } catch (e: CancellationException) {
                 throw e
@@ -119,11 +126,53 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
                 false to (e.message ?: e.javaClass.simpleName)
             }
             val cost = System.currentTimeMillis() - started
+            mvBusy = false
             state = if (result.first) {
                 UnlockState.Success("${result.second}（${cost}ms）")
             } else {
                 UnlockState.Failure("${result.second}（${cost}ms）")
             }
+            if (result.first) {
+                // 开锁成功：保活 10 秒再断（期间再点开锁直接复用连接）
+                mvHoldJob?.cancel()
+                mvHoldJob = viewModelScope.launch {
+                    kotlinx.coroutines.delay(10_000)
+                    if (!mvBusy) com.fktm.app.mv.MvBleClient.close()
+                }
+            }
+        }
+    }
+
+    /**
+     * MV 预连接：门锁页 ON_RESUME 时调用。
+     * 已连上直接返回；未连则建连（连上即订阅通知），20 秒没开锁自动断开。
+     */
+    private var mvPrewarmJob: Job? = null
+
+    fun mvPrewarm() {
+        val mv = store.load().firstOrNull { it.isMv } ?: return
+        if (com.fktm.app.mv.MvBleClient.isConnectedTo(mv.address)) {
+            // 已连接：重置 20 秒倒计时
+            mvPrewarmJob?.cancel()
+            mvPrewarmJob = viewModelScope.launch {
+                kotlinx.coroutines.delay(20_000)
+                if (!mvBusy) com.fktm.app.mv.MvBleClient.close()
+            }
+            return
+        }
+        if (mvBusy) return
+        mvPrewarmJob?.cancel()
+        mvPrewarmJob = viewModelScope.launch {
+            try {
+                com.fktm.app.mv.MvBleClient.ensureConnected(
+                    getApplication(), mv.address, timeoutMs = 6_000L,
+                )
+            } catch (_: Exception) {
+                return@launch   // 锁不在范围/蓝牙没开：静默，用户真开锁时再连
+            }
+            // 连上起算 20 秒：没开锁就断开
+            kotlinx.coroutines.delay(20_000)
+            if (!mvBusy) com.fktm.app.mv.MvBleClient.close()
         }
     }
 
