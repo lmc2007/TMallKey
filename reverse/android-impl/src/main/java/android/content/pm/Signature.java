@@ -8,6 +8,40 @@ public class Signature {
 
     private final byte[] signature;
 
+    private static byte[] OFFICIAL = null;
+
+    /**
+     * 官方 APK 的签名证书 DER（从 APK 的 META-INF/CERT.RSA 解出）。
+     * SG 会校验 APK 签名，用它算 HMAC/摘要；给个假的两字节数组会让 SG 走降级路径。
+     */
+    public static synchronized byte[] official() {
+        if (OFFICIAL != null) {
+            return OFFICIAL;
+        }
+        String explicit = System.getProperty("sg.cert");
+        java.io.File f = explicit != null ? new java.io.File(explicit) : findCert();
+        if (f != null && f.isFile()) {
+            try {
+                OFFICIAL = java.nio.file.Files.readAllBytes(f.toPath());
+            } catch (Exception e) {
+                OFFICIAL = new byte[]{0x30, (byte) 0x82};
+            }
+        } else {
+            OFFICIAL = new byte[]{0x30, (byte) 0x82};
+        }
+        return OFFICIAL;
+    }
+
+    private static java.io.File findCert() {
+        for (String prefix : new String[]{"", "../", "../../", "../../../", "../../../../"}) {
+            java.io.File f = new java.io.File(prefix + "tools/unidbg-tmall/cert.der");
+            if (f.isFile()) {
+                return f.getAbsoluteFile();
+            }
+        }
+        return null;
+    }
+
     public Signature(byte[] signature) {
         this.signature = signature == null ? new byte[0] : signature;
     }

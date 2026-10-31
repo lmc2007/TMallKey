@@ -20,7 +20,7 @@ public class PackageInfo {
         info.minSdkVersion = 21;
         info.targetSdkVersion = 30;
         info.applicationInfo = ApplicationInfo.of(packageName);
-        info.signatures = new Signature[]{new Signature(new byte[]{0x30, (byte) 0x82})};
+        info.signatures = new Signature[]{new Signature(Signature.official())};
         info.firstInstallTime = 1600000000000L;
         info.lastUpdateTime = 1600000000000L;
         return info;
