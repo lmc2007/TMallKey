@@ -65,6 +65,17 @@ public class SGHarness {
         memory.setLibraryResolver(new LibDirResolver(
                 new File(LIB_DIR).getAbsoluteFile(), new AndroidResolver(23)));
 
+        // SG 在 native 侧用 __system_property_get 读设备属性（不走 Java Build）。
+        // unidbg 的 SystemPropertyHook 是死代码（没有任何地方实例化它），这里手动挂上，
+        // 并把真机 getprop 的值喂进去 —— 否则属性全空，wua 会退化成 69 字符。
+        if (!"0".equals(System.getProperty("sg.props", "1"))) {
+            com.github.unidbg.linux.android.SystemPropertyHook propHook =
+                    new com.github.unidbg.linux.android.SystemPropertyHook(emulator);
+            propHook.setPropertyProvider(SGProps::get);
+            memory.addHookListener(propHook);
+            System.out.println("[SG] SystemPropertyHook 已挂");
+        }
+
         vm = emulator.createDalvikVM();
         vm.setVerbose(verbose);
 

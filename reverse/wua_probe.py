@@ -100,11 +100,30 @@ def call_mtop(api: str, data: dict, cookies: dict, extra_headers: dict,
     req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
-            return r.status, json.loads(r.read().decode("utf-8", "replace"))
+            body = json.loads(r.read().decode("utf-8", "replace"))
+            body["__set_cookie"] = r.headers.get_all("Set-Cookie") or []
+            return r.status, body
     except urllib.error.HTTPError as e:
-        return e.code, json.loads(e.read().decode("utf-8", "replace"))
+        body = json.loads(e.read().decode("utf-8", "replace"))
+        body["__set_cookie"] = e.headers.get_all("Set-Cookie") or []
+        return e.code, body
     except Exception as e:  # noqa: BLE001
-        return -1, {"ret": [f"NETWORK_ERROR::{e}"]}
+        return -1, {"ret": [f"NETWORK_ERROR::{e}"], "__set_cookie": []}
+
+
+def absorb_h5_tokens(cookies: dict, set_cookies: list) -> bool:
+    """从 Set-Cookie 里吸收 _m_h5_tk / _m_h5_tk_enc，返回是否有更新。"""
+    changed = False
+    for sc in set_cookies or []:
+        first = sc.split(";", 1)[0]
+        if "=" not in first:
+            continue
+        k, v = first.split("=", 1)
+        k = k.strip()
+        if k in ("_m_h5_tk", "_m_h5_tk_enc") and cookies.get(k) != v:
+            cookies[k] = v
+            changed = True
+    return changed
 
 
 def main() -> int:
@@ -130,9 +149,27 @@ def main() -> int:
     cookies = read_cookies(args.cookies)
     print(f"[2/2] 请求 {args.api}（cookies {len(cookies)} 项）")
 
-    variants = [("带 wua", {"x-mini-wua": wua})]
+    # h5 流程：先打一次拿 _m_h5_tk（首次通常 FAIL_SYS_TOKEN_EMPTY），再带 token 重签
+    for attempt in range(3):
+        st, bd = call_mtop(args.api, {}, cookies, {})
+        got_new = absorb_h5_tokens(cookies, bd.get("__set_cookie"))
+        print(f"      取 token #{attempt + 1}: ret={bd.get('ret')} 新token={got_new}")
+        if not got_new or "_m_h5_tk" in cookies and not str(bd.get("ret", [""])[0]).startswith("FAIL_SYS_TOKEN"):
+            break
+    print(f"      _m_h5_tk={cookies.get('_m_h5_tk')}")
+
+    devid = os.environ.get("SG_DEVID", "Antrb7uDc9emwB3hbOSi9Sr9tbLbhkIE5qPr-PwUlXva")
+    base_hdr = {"x-devid": devid}
+    # Kaltsit 项目：CM 层还看这几个头（x-uid / x-sid / x-campus-id）
+    if os.environ.get("SG_UID"):
+        base_hdr["x-uid"] = os.environ["SG_UID"]
+    if os.environ.get("SG_SID"):
+        base_hdr["x-sid"] = os.environ["SG_SID"]
+    if os.environ.get("SG_CAMPUS_ID"):
+        base_hdr["x-campus-id"] = os.environ["SG_CAMPUS_ID"]
+    variants = [("带 wua", dict(base_hdr, **{"x-mini-wua": wua}))]
     if args.compare or not cookies:
-        variants.append(("不带 wua", {}))
+        variants.append(("不带 wua", base_hdr))
     for label, hdr in variants:
         status, body = call_mtop(args.api, {}, cookies, hdr)
         print(f"  [{label}] http={status} ret={body.get('ret')} api={body.get('api')}")

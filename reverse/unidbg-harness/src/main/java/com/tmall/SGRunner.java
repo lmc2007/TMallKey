@@ -76,6 +76,15 @@ public class SGRunner {
         memory.setLibraryResolver(new LibDirResolver(
                 new File(LIB_DIR).getAbsoluteFile(), new AndroidResolver(23)));
 
+        // 同 SGHarness：把真机 property 喂给 native（SG 用 __system_property_get 读设备信息）
+        if (!"0".equals(System.getProperty("sg.props", "1"))) {
+            com.github.unidbg.linux.android.SystemPropertyHook propHook =
+                    new com.github.unidbg.linux.android.SystemPropertyHook(emulator);
+            propHook.setPropertyProvider(SGProps::get);
+            memory.addHookListener(propHook);
+            System.out.println("[RUN] SystemPropertyHook 已挂");
+        }
+
         // 文件重定向：SG 初始化/签名要读写 /data/data/<pkg> 下的缓存，不映射就全部 MISS
         File dataRoot = new File(SGHarness.DATA_DIR);
         if (!dataRoot.exists() && !dataRoot.mkdirs()) {
