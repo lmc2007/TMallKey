@@ -105,10 +105,21 @@ README 里有完整事实表、命令码、JNI 桩坑与 bootstrap 步骤。
       **为什么只有②能成**：插表动作在 `SGPluginManager → onPluginLoaded` 这条 Java 链上，
       而 unidbg 的 DVM 不执行 dex 字节码（只提供签名表 + 反射桥）。Java 不跑，表永远空。
 
-      当前进度：`reverse/sg-java` 已把三个插件 dex 的 Java 层 + 接口编进宿主 JVM 工程，
-      编译错误 259 → ~90（剩余是 jadx 产物畸变与少量接口签名不一致，机械修）。
-      下一步：清完编译 → 写 android-impl 覆盖 `Stub!` → harness 切 `ProxyClassFactory`
-      让真 Java 驱动 → 验收 `20102` 吐 wua。
+      当前进度（16:30）：**Java 全链路已通，但插表仍未补上**。
+      - `reverse/sg-java`：三个插件 dex 的 Java 层编译通过（154 class），
+        把 `System.loadLibrary` 与 `JNICLibrary.doCommandNative` 抽成钩子。
+      - `reverse/android-impl`：android.* 可用实现（Context/SharedPreferences/pm/os/telephony…）。
+      - `SGRunner`：main 插件 `onPluginLoaded` 跑通，`10101` 经 Java 调用返回 **0**；
+        body 插件加载时 `loadLibrary` 钩子真的加载了 `libsecuritybody.so` 并跑 JNI_OnLoad，
+        `SGPluginExtras.slot` 被写入 `0x13284f0b`。
+      - 但 `20101/20102` 仍是 9904 —— 主模块处理 2xxxx 时**不读** `SGPluginExtras.slot`
+        （verbose 里只有 Set 没有 Get）。说明分发表不是插件 JNI_OnLoad 填的，
+        而是框架拿到 `onPluginLoaded` 返回的 `IRouterComponent` 后交给 native 登记。
+      - 卡点：decompiled dex 里**找不到 `onPluginLoaded` 的任何调用点**（classes8 框架类
+        有 27 个 jadx 反编译失败，`d.java` 1295 行多 JADX WARN），这段大概率丢了。
+
+      下一步：① 用 `--show-bad-code`/baksmali 补全 `d.java`，找到「router 交给 native」那步照做；
+      或 ② 在 IDA 里看 2xxxx handler 从哪张全局表取函数指针、谁往里写。
 
 - [ ] 阶段 4 · 一致性验证（unidbg 产物 vs 真机抓包；CM❌ 会话 + 自产 wua 建档）
 - [ ] 阶段 5 · fkTM 集成（wua 生成器落地方式届时定）

@@ -13,6 +13,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
         <unidbg.version>0.9.10-SNAPSHOT</unidbg.version>
+        <exec.mainClass>com.tmall.SGHarness</exec.mainClass>
     </properties>
 
     <dependencies>
@@ -25,6 +26,30 @@
             <groupId>com.github.zhkl0228</groupId>
             <artifactId>unidbg-unicorn2</artifactId>
             <version>${unidbg.version}</version>
+        </dependency>
+        <!-- SG 的 Java 编排层 + android 实现（运行期必须排在 android.jar 之前） -->
+        <dependency>
+            <groupId>com.tmall</groupId>
+            <artifactId>android-impl</artifactId>
+            <version>0.1.0</version>
+        </dependency>
+        <!-- android.jar 只做兜底：android-impl 里没实现的类从这来（方法体是 Stub!），
+             必须排在 android-impl 之后 -->
+        <dependency>
+            <groupId>com.google.android</groupId>
+            <artifactId>android</artifactId>
+            <version>33</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.tmall</groupId>
+            <artifactId>sg-java</artifactId>
+            <version>0.1.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.json</groupId>
+            <artifactId>json</artifactId>
+            <version>20240303</version>
         </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>
@@ -45,7 +70,7 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.1.1</version>
                 <configuration>
-                    <mainClass>com.tmall.SGHarness</mainClass>
+                    <mainClass>${exec.mainClass}</mainClass>
                     <classpathScope>runtime</classpathScope>
                 </configuration>
             </plugin>

@@ -85,3 +85,51 @@ SecurityGuard 初始化里必踩。补丁降级为 ENOENT。安装方式见 `boo
 ## 行为边界
 
 只读、只本地。不修改天猫校园任何数据；`ck` / `cookie2` 等凭证不进本目录。
+
+---
+
+## 路线②：宿主 JVM 跑 SG 的 Java 编排层（2026-10-31 下午）
+
+`SGRunner` + `RunJava` 是这条路的主入口：
+
+```
+SG Java（宿主 JVM） --NativeBridge--> unidbg doCommandNative --> 官方 SO
+      ^                                                            |
+      +---------- ProxyJni 反射回调（FindClass / CallStaticXxx）----+
+```
+
+### 组件
+
+| 件 | 作用 |
+|---|---|
+| `reverse/sg-java` | SG 三个插件 dex 的 Java 层（编译通过，154 class） |
+| `reverse/android-impl` | android.* 的可用实现（Context / SharedPreferences / pm.* / os.* / telephony 等） |
+| `SGRunner` | 装 ProxyClassFactory（fallback=SGJni）、挂 NativeBridge、挂 loadLibrary 钩子、驱动插件加载 |
+| `NativeLibraryLoader` | 把插件 Java 里的 `System.loadLibrary` 接到 unidbg 的 `vm.loadLibrary + JNI_OnLoad` |
+| `NativeBridge` | 把 `JNICLibrary.doCommandNative`（原本是 native）转发进 unidbg |
+
+### 已验证
+
+- `SecurityGuardMainPlugin.onPluginLoaded` 跑通，`native doCommand(10101)` 经 Java 调用返回 **0**
+- `SecurityGuardSecurityBodyPlugin.onPluginLoaded` 跑通，`loadLibrary(sgsecuritybody)` 真的加载了
+  `libsecuritybody.so` 并跑 JNI_OnLoad，**`SGPluginExtras.slot` 被写入 `0x13284f0b`**（body 段内）
+- 异常能取到：native 抛的 `SecException` 会被 unidbg 吞成 null，靠 `SecException.lastErrorCode` 抓
+
+### 仍然卡住：2xxxx 还是 9904
+
+`20101` / `20102` 都返回 `SecException(201019904 / 201029904)`，即查表仍未命中。
+
+结论：**分发表不是插件 JNI_OnLoad 填的**。body 的 JNI_OnLoad 只写了 `SGPluginExtras.slot`，
+而主模块在处理 2xxxx 时并没有去读这个字段（verbose 里只有 Set，没有 Get）。
+
+真正的插表动作应该在框架里：`SGPluginManager` 调 `onPluginLoaded` 拿到返回的 `IRouterComponent`，
+再把它交给 native 登记。但我们在 decompiled 的 dex 里**找不到任何 `onPluginLoaded` 的调用点**
+（classes8 的框架类有 27 个类 jadx 反编译失败，`d.java` 1295 行里有多处 JADX WARN），
+大概率就丢在那部分。
+
+### 下一步（二选一）
+
+1. **补 decompile**：对 `classes8.dex` 用 jadx 的 `--show-bad-code` 或换 baksmali，把 `d.java`
+   里未反编译的方法拿全，找到“onPluginLoaded → 交给 native”的那一步，照着补一次。
+2. **直接在 native 侧找登记入口**：主模块里除 `doCommandNative` 外还有 `setGlobalJVM` 导出；
+   在 IDA 里看 2xxxx 的 handler 是不是从某个全局表里取函数指针，以及谁往里写。

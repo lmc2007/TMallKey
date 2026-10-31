@@ -26,8 +26,8 @@
             <groupId>com.google.android</groupId>
             <artifactId>android</artifactId>
             <version>33</version>
-            <scope>system</scope>
-            <systemPath>${android.jar}</systemPath>
+            <!-- provided：只用于编译，不传染给依赖方（运行期由 android-impl 覆盖） -->
+            <scope>provided</scope>
         </dependency>
     </dependencies>
 
