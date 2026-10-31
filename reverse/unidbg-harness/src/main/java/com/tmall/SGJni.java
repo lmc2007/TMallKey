@@ -330,8 +330,35 @@ public class SGJni extends AbstractJni {
             String msg = m instanceof DvmObject ? String.valueOf(((DvmObject<?>) m).getValue()) : String.valueOf(m);
             int code = safeInt(args, 1);
             System.out.println("[SG] SecException(" + code + "): " + msg);
+            if (Boolean.getBoolean("sg.stacktrace")) {
+                dumpNativeStack(code);
+            }
         }
         return dvmClass.newObject(null);
+    }
+
+    /**
+     * 扫 native 栈，把落在 libmain/.text 范围内的值当候选返回地址打印。
+     * ARM64 经 -O2 后 frame pointer 链常被破坏，直接扫栈比 unwind 稳。
+     */
+    private void dumpNativeStack(int code) {
+        try {
+            com.github.unidbg.arm.context.RegisterContext ctx = emulator.getContext();
+            com.github.unidbg.pointer.UnidbgPointer sp = ctx.getStackPointer();
+            System.out.println("[STACK] code=" + code + " sp=0x" + Long.toHexString(sp.peer));
+            for (int i = 0; i < 160; i++) {
+                long v = sp.getLong(i * 8L);
+                for (com.github.unidbg.Module mod : emulator.getMemory().getLoadedModules()) {
+                    long off = v - mod.base;
+                    if (off > 0 && off < 0x400000L) {
+                        System.out.println("[STACK]   +0x" + Integer.toHexString(i * 8) + "  "
+                                + mod.name + "+0x" + Long.toHexString(off));
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            System.out.println("[STACK] 失败: " + t);
+        }
     }
 
     private static int safeInt(VarArg args, int index) {

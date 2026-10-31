@@ -418,6 +418,23 @@ public class SGRunner {
             return;
         }
 
+        // SG 的 onPluginLoaded 里有 schedule(new a(), 2L, TimeUnit.SECONDS) 的延迟初始化，
+        // 等它跑完再签名（宿主 JVM 里这些线程是真的会跑的）。
+        try {
+            Thread.sleep(Long.getLong("sg.warmup.ms", 0L));
+            System.out.println("[WARM] 等待 SG 异步初始化完成");
+        } catch (InterruptedException ignored) {
+        }
+
+        // useWua=true 时，10401 内部会用到 wua。先预热一次 20102，让 SG 内部缓存就绪。
+        try {
+            String warm = body.getSecurityBodyDataEx(String.valueOf(System.currentTimeMillis()),
+                    "12574478", "", null, 8, 0);
+            System.out.println("[WARM] wua 预热 -> " + (warm == null ? "null" : warm.length() + " chars"));
+        } catch (Throwable t) {
+            System.out.println("[WARM] wua 预热异常: " + t);
+        }
+
         // ---- 离线自证：signRequest(10401) 的输入是 mtopsdk 拼好的 INPUT 串 ----
         // mtopsdk 的 getMtopApiSign: requestType=7, paramMap={"INPUT": 21 段 & 拼接}
         try {
@@ -517,6 +534,26 @@ public class SGRunner {
 
         // 直接打 10401：对比第 5 个布尔参数 true/false（C0030 传 true，C0042 传 false）
         if (router != null) {
+            // 按 mtopsdk convertInnerBaseStrMap 的真实顺序拼 22 段（deviceId 用真机的）
+            String tReal = String.valueOf(System.currentTimeMillis());
+            String[] seg = new String[]{
+                    "", "", "", "12574478", md5Hex("{}"), tReal,
+                    "mtop.tmall.campus.member.app.user.get", "1.0", "", "600000@taobao_android_5.0.0",
+                    "Antrb7uDc9emwB3hbOSi9Sr9tbLbhkIE5qPr-PwUlXva", "", "", "", "", "", "", "", "", "", "", ""
+            };
+            String realInput22 = String.join("&", seg);
+            System.out.println("[REAL] input22 = " + realInput22);
+            java.util.HashMap<String, String> m2 = new java.util.HashMap<>();
+            m2.put("INPUT", realInput22);
+            for (int rt : new int[]{7, 2}) {
+                try {
+                    Object r = router.doCommand(10401, m2, "12574478", rt, "", true);
+                    System.out.println("[REAL10401] rt=" + rt + " -> " + SGHarness.describe(r));
+                } catch (Throwable tt) {
+                    System.out.println("[REAL10401] rt=" + rt + " 异常: " + tt);
+                }
+            }
+
             java.util.HashMap<String, String> m = new java.util.HashMap<>();
             m.put("INPUT", "hello&world&12574478");
             for (boolean flag : new boolean[]{false, true}) {
