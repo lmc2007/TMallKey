@@ -49,6 +49,8 @@ public class SGRunner {
 
     /** 挂在字段上：run() 里的 sign 探针要用 */
     private SecurityGuardMainPlugin mainPlugin;
+    /** middletier：getSecurityFactors 一次产出 x-sign / wua / x-mini-wua / x-umt / x-sgext */
+    private com.alibaba.wireless.security.middletierplugin.SecurityGuardMiddleTierPlugin mtPlugin;
     private final AndroidEmulator emulator;
     private final VM vm;
     private final SGJni jni;
@@ -63,6 +65,58 @@ public class SGRunner {
         Memory memory = emulator.getMemory();
         memory.setLibraryResolver(new LibDirResolver(
                 new File(LIB_DIR).getAbsoluteFile(), new AndroidResolver(23)));
+
+        // 文件重定向：SG 初始化/签名要读写 /data/data/<pkg> 下的缓存，不映射就全部 MISS
+        File dataRoot = new File(SGHarness.DATA_DIR);
+        if (!dataRoot.exists() && !dataRoot.mkdirs()) {
+            System.out.println("[RUN] cannot create data dir " + dataRoot);
+        }
+        emulator.getSyscallHandler().addIOResolver(new com.github.unidbg.file.IOResolver<com.github.unidbg.file.linux.AndroidFileIO>() {
+            @Override
+            public com.github.unidbg.file.FileResult<com.github.unidbg.file.linux.AndroidFileIO> resolve(
+                    com.github.unidbg.Emulator<com.github.unidbg.file.linux.AndroidFileIO> emu,
+                    String pathname, int oflags) {
+                String prefix = "/data/data/" + PKG + "/";
+                if (!pathname.startsWith(prefix)) {
+                    return null;
+                }
+                File host = new File(dataRoot, pathname.substring(prefix.length()));
+                boolean wantDir = (oflags & 0x10000) != 0;
+                if (Boolean.getBoolean("sg.iolog")) {
+                    System.out.println("[IO] open " + pathname + " oflags=0x" + Integer.toHexString(oflags)
+                            + " host=" + (host.isDirectory() ? "dir" : host.isFile() ? "file" : "none"));
+                }
+                if (host.isDirectory()) {
+                    return com.github.unidbg.file.FileResult.success(
+                            new com.github.unidbg.linux.file.DirectoryFileIO(oflags, pathname, host));
+                }
+                if (!host.exists() && (oflags & 3) != 0) {
+                    File parent = host.getParentFile();
+                    if (parent != null && !parent.exists()) {
+                        parent.mkdirs();
+                    }
+                    try {
+                        if (host.createNewFile()) {
+                            return com.github.unidbg.file.FileResult.success(
+                                    new com.github.unidbg.linux.file.SimpleFileIO(oflags, host, pathname));
+                        }
+                    } catch (java.io.IOException e) {
+                        System.out.println("[IO] create failed " + host + ": " + e.getMessage());
+                    }
+                }
+                if (host.isFile() && wantDir) {
+                    return null;
+                }
+                if (host.isFile()) {
+                    return com.github.unidbg.file.FileResult.success(
+                            new com.github.unidbg.linux.file.SimpleFileIO(oflags, host, pathname));
+                }
+                if ((oflags & 3) != 2) {
+                    System.out.println("[IO-MISS] open " + pathname + " (oflags=0x" + Integer.toHexString(oflags) + ")");
+                }
+                return null;
+            }
+        });
 
         vm = emulator.createDalvikVM();
         vm.setVerbose(verbose);
@@ -207,6 +261,9 @@ public class SGRunner {
         try {
             mainPlugin.onPluginLoaded(context, router, mainInfo, "sgmain", 0,
                     "12574478", "5.0.0", "/data/data/" + PKG + "/files");
+            String mainSo = new java.io.File(LIB_DIR, "libsgmainso-6.5.97.so").getAbsolutePath();
+            Object m0 = router.doCommand(10102, "sgmain", "6.5.97", mainSo);
+            System.out.println("[RUN] register main(10102) -> " + SGHarness.describe(m0));
             System.out.println("[RUN] main plugin loaded");
         } catch (Throwable t) {
             System.out.println("[RUN] main plugin FAILED: " + t);
@@ -225,7 +282,7 @@ public class SGRunner {
             // 不调这一步，主模块的 2xxxx 分发表永远是空的 → 9904。
             // 参数照 d.java: objArr = {插件名, str11, so 绝对路径}
             String bodySo = new java.io.File(LIB_DIR, "libsgsecuritybodyso-6.5.104.so").getAbsolutePath();
-            Object reg = router.doCommand(10102, "sgsecuritybody", "", bodySo);
+            Object reg = router.doCommand(10102, "sgsecuritybody", "6.5.104", bodySo);
             System.out.println("[RUN] register plugin(10102) -> " + SGHarness.describe(reg)
                     + "   slot=" + Long.toHexString(com.alibaba.wireless.security.framework.SGPluginExtras.slot));
         } catch (Throwable t) {
@@ -237,6 +294,24 @@ public class SGRunner {
         // securitybody 的 wua 生成前要先 initSecurityBody(appKey, packageName)（命令 20101）
         Object init = router.doCommand(20101, "12574478", PKG);
         System.out.println("[RUN] initSecurityBody(20101) -> " + SGHarness.describe(init));
+
+        System.out.println("[RUN] === SecurityGuardMiddleTierPlugin.onPluginLoaded ===");
+        mtPlugin = new com.alibaba.wireless.security.middletierplugin.SecurityGuardMiddleTierPlugin();
+        ISGPluginInfo mtInfo = new PluginInfo("middletier", "6.5.90", mtPlugin);
+        try {
+            // d.java: 加载后续插件前先把 slot 清零，避免用上一个插件的分发函数去登记新插件
+            com.alibaba.wireless.security.framework.SGPluginExtras.slot = 0L;
+            mtPlugin.onPluginLoaded(context, router, mtInfo, "sgmiddletier", 0);
+            System.out.println("[RUN] middletier JNI_OnLoad 后 slot=0x"
+                    + Long.toHexString(com.alibaba.wireless.security.framework.SGPluginExtras.slot));
+            String mtSo = new java.io.File(LIB_DIR, "libsgmiddletierso-6.5.90.so").getAbsolutePath();
+            Object mreg = router.doCommand(10102, "sgmiddletier", "6.5.90", mtSo);
+            System.out.println("[RUN] register middletier(10102) -> " + SGHarness.describe(mreg)
+                    + "   slot=0x" + Long.toHexString(com.alibaba.wireless.security.framework.SGPluginExtras.slot));
+        } catch (Throwable t) {
+            System.out.println("[RUN] middletier FAILED: " + t);
+            t.printStackTrace();
+        }
 
         return bodyPlugin.getInterface(ISecurityBodyComponent.class);
     }
@@ -281,6 +356,56 @@ public class SGRunner {
             }
         } catch (Throwable t) {
             System.out.println("[SIGN] 组件获取失败: " + t);
+        }
+
+        // ---- getSecurityFactors：mtop 真正的反作弊头入口（一次给全部 4 个头）----
+        if (mtPlugin != null) {
+            try {
+                com.alibaba.wireless.security.open.middletier.IUnifiedSecurityComponent us =
+                        mtPlugin.getInterface(
+                                com.alibaba.wireless.security.open.middletier.IUnifiedSecurityComponent.class);
+                // 2403 = init 阶段被拒，先试几种 authCode
+                for (String ac : new String[]{"", "h5", "12574478", "default"}) {
+                    java.util.HashMap<String, Object> im = new java.util.HashMap<>();
+                    im.put("authCode", ac);
+                    im.put("flag", 0);
+                    try {
+                        us.init(im);
+                        System.out.println("[UNIFIED] init(authCode='" + ac + "') ok");
+                    } catch (Throwable t) {
+                        System.out.println("[UNIFIED] init(authCode='" + ac + "') 失败: " + t);
+                    }
+                }
+
+                StringBuilder big = new StringBuilder();
+                for (int i = 0; i < 21; i++) {
+                    if (i > 0) big.append('&');
+                    big.append(i == 3 ? "12574478" : (i == 4 ? md5Hex("{}") : "x"));
+                }
+                java.util.HashMap<String, Object> m = new java.util.HashMap<>();
+                m.put("appkey", "12574478");
+                m.put("data", big.toString());
+                m.put("useWua", Boolean.TRUE);
+                m.put("env", 0);
+                m.put("api", "mtop.tmall.campus.member.app.user.get");
+                m.put("authCode", "");
+                m.put("requestId", "req-" + System.currentTimeMillis());
+                m.put("flag", 0);
+                java.util.HashMap<String, String> factors = us.getSecurityFactors(m);
+                if (factors == null) {
+                    System.out.println("[UNIFIED] null   [err="
+                            + com.alibaba.wireless.security.open.SecException.lastErrorCode + "]");
+                } else {
+                    System.out.println("[UNIFIED] keys=" + factors.keySet());
+                    for (java.util.Map.Entry<String, String> en : factors.entrySet()) {
+                        String v = en.getValue();
+                        System.out.println("[UNIFIED] " + en.getKey() + " (" + (v == null ? 0 : v.length())
+                                + ") = " + (v == null ? "null" : (v.length() > 100 ? v.substring(0, 100) : v)));
+                    }
+                }
+            } catch (Throwable t) {
+                System.out.println("[UNIFIED] 异常: " + t);
+            }
         }
 
         String ts = String.valueOf(System.currentTimeMillis());
