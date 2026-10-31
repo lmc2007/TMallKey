@@ -342,3 +342,49 @@ mvn -q exec:java -Dexec.mainClass=com.tmall.QuickRun     # 7~15 秒跑完
 
 `QuickRun` 会做：initPlugins → 四种 20102 参数组合 → 模块 6/7 命令探测 → 10401 requestType 1..10。
 比 `RunJava`（3~4 分钟）快一个数量级，适合快速试参数。
+
+---
+
+## ★ 真机 hook（frida）—— 2026-10-31 19:20 打通
+
+不需要 frida-gadget、不需要改包。之前失败是**用法问题**，天猫校园并没有拦住我们。
+
+### 四个必要条件（每个都踩过）
+
+1. **frida-server 要让 adb shell 一直挂着**
+   ```bash
+   adb shell "su -c '/data/local/tmp/frida-server -l 127.0.0.1:27042'"   # 前台跑，另开一个终端操作
+   ```
+   `nohup setsid ... &` 会被 su 会话清理，进程和日志都不存在。
+2. **attach 主进程**（`pidof com.tmall.campus.and`）。
+   `frida -f` 的 spawn 会变成 `:channel` 子进程，别用。
+   frida 的 stdin 必须保持打开：`sleep 180 | frida -U -p <pid> -l x.js -q`，否则 REPL 立刻退出。
+3. **SG 的类在自定义 ClassLoader 里**
+   `com.taobao.wireless.security.adapter.JNICLibrary` 只在
+   `PathClassLoader[DexPathList[zip .../lib/arm64/libsgmain.so]]` 里；
+   必须先 `Java.classFactory.loader = <该 loader>`，再 `Java.use(...)`。
+4. **日志写 App 私有目录**（`ctx.getFilesDir()`）；`/data/local/tmp` 被 SELinux 拦。
+   `setTimeout` 在这个场景不触发 → 脚本要**同步执行**。
+
+### 脚本
+
+| 文件 | 作用 |
+|---|---|
+| `reverse/hook_discover.js` | 枚举 SG 的类 / ClassLoader / 已加载 so |
+| `reverse/hook_watch.js` | 监看 App 自己的 `doCommandNative` 调用（写 `files/sg_watch.log`） |
+| `reverse/hook_sg5.js` | hook + 主动在真机上调 `signRequest`（拿基准用） |
+| `reverse/hook_headers.js` | 抓请求头（anet/okhttp 的 addHeader；目前未命中，待换 hook 点） |
+
+### 真机基准（appKey 34270422，INPUT=`test_input_for_sign`）
+
+```
+10401 {INPUT=...}, 34270422, 7, "", true  ->  ab2e750100be14e0b173c648b2ef0a92ed99145e595b87c438
+10401 {INPUT=...}, 34270422, 3, "", true  ->  d929eaee7285e33c65d764d940376ba79d801b02
+10401 {INPUT=...}, 34270422, 2, "", true  ->  0CCBE379C55EE9E7B82CF82F5223F746
+```
+
+**结论**：
+- 我们调 10401 的参数形式与真机**完全一致** → 608 不是调用方式问题。
+- `type=2` ≠ `md5(INPUT)`（md5 = `b6f7cf53e0c71d53ea940785a8ab52e9`）→ SG 用**设备绑定密钥**
+  做 HMAC，不是裸哈希。跨环境算不出同值是必然的。
+- 所以 608 的唯一合理解释是：**取密钥失败**（安全图片 / AVMP / SG 数据三者之一没就绪）。
