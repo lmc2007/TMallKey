@@ -90,3 +90,4 @@ lspatch-module/app/libs/
 
 # reverse 工程构建产物
 reverse/**/target/
+hs_err_pid*.log
