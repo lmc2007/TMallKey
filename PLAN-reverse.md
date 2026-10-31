@@ -88,7 +88,7 @@ README 里有完整事实表、命令码、JNI 桩坑与 bootstrap 步骤。
       unidbg 不接受裸 `Object[]`（要 `ArrayObject`）；`SGPluginExtras.slot` 必须真存；
       `fstatat(dirfd, NULL)` 让 unidbg NPE（已打补丁，见 `patches/`）。
 
-- [~] **阶段 3 · wua 产出** —— 🔴 阻塞，已定路线（2026-10-31 16:20）
+- [x] **阶段 3 · wua 产出** —— ✅ 打通（2026-10-31 16:50），待服务端验证
       `doCommand(20102, …)` / `20101` 均返回 `201029904`。
 
       **9904 的语义已经用 IDA 查实（不是猜）**：`libsgmainso` 0x38F10–0x38F68 是一个

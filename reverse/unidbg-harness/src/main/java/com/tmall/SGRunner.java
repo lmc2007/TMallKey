@@ -47,6 +47,8 @@ public class SGRunner {
     public static final String LIB_DIR = SGHarness.LIB_DIR;
     public static final String PKG = SGHarness.PKG;
 
+    /** 挂在字段上：run() 里的 sign 探针要用 */
+    private SecurityGuardMainPlugin mainPlugin;
     private final AndroidEmulator emulator;
     private final VM vm;
     private final SGJni jni;
@@ -192,11 +194,15 @@ public class SGRunner {
         return ret;
     }
 
-    public void run() {
+    /**
+     * 按真机顺序初始化：main 插件 → body 插件 → 10102 登记 → 20101 initSecurityBody。
+     * 返回可直接调 wua 的 body 组件（失败返回 null）。
+     */
+    public ISecurityBodyComponent initPlugins() {
         IRouterComponent router = new C0001();
 
         System.out.println("[RUN] === SecurityGuardMainPlugin.onPluginLoaded ===");
-        SecurityGuardMainPlugin mainPlugin = new SecurityGuardMainPlugin();
+        mainPlugin = new SecurityGuardMainPlugin();
         ISGPluginInfo mainInfo = new PluginInfo("sgmain", "6.5.97", mainPlugin);
         try {
             mainPlugin.onPluginLoaded(context, router, mainInfo, "sgmain", 0,
@@ -205,7 +211,7 @@ public class SGRunner {
         } catch (Throwable t) {
             System.out.println("[RUN] main plugin FAILED: " + t);
             t.printStackTrace();
-            return;
+            return null;
         }
 
         System.out.println("[RUN] === SecurityGuardSecurityBodyPlugin.onPluginLoaded ===");
@@ -225,12 +231,22 @@ public class SGRunner {
         } catch (Throwable t) {
             System.out.println("[RUN] body plugin FAILED: " + t);
             t.printStackTrace();
-            return;
+            return null;
         }
 
         // securitybody 的 wua 生成前要先 initSecurityBody(appKey, packageName)（命令 20101）
         Object init = router.doCommand(20101, "12574478", PKG);
         System.out.println("[RUN] initSecurityBody(20101) -> " + SGHarness.describe(init));
+
+        return bodyPlugin.getInterface(ISecurityBodyComponent.class);
+    }
+
+    /** 探针入口：初始化 + sign/wua 自检。 */
+    public void run() {
+        ISecurityBodyComponent body = initPlugins();
+        if (body == null) {
+            return;
+        }
 
         // ---- 离线自证：signRequest(10401) 的输入是 mtopsdk 拼好的 INPUT 串 ----
         // mtopsdk 的 getMtopApiSign: requestType=7, paramMap={"INPUT": 21 段 & 拼接}
@@ -265,12 +281,6 @@ public class SGRunner {
             }
         } catch (Throwable t) {
             System.out.println("[SIGN] 组件获取失败: " + t);
-        }
-
-        ISecurityBodyComponent body = bodyPlugin.getInterface(ISecurityBodyComponent.class);
-        System.out.println("[RUN] ISecurityBodyComponent = " + body);
-        if (body == null) {
-            return;
         }
 
         String ts = String.valueOf(System.currentTimeMillis());

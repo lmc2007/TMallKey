@@ -133,3 +133,82 @@ SG Java（宿主 JVM） --NativeBridge--> unidbg doCommandNative --> 官方 SO
    里未反编译的方法拿全，找到“onPluginLoaded → 交给 native”的那一步，照着补一次。
 2. **直接在 native 侧找登记入口**：主模块里除 `doCommandNative` 外还有 `setGlobalJVM` 导出；
    在 IDA 里看 2xxxx 的 handler 是不是从某个全局表里取函数指针，以及谁往里写。
+
+---
+
+## ★ 2026-10-31 16:50 打通：10102 是插件登记命令
+
+### 结论
+
+`framework/d.java`（需 `jadx --show-bad-code`，普通模式会丢这段）里，框架对**每个插件**在
+`onPluginLoaded` 之后都会发一次登记命令：
+
+```java
+} else {
+    SGPluginExtras.slot = 0L;                                    // 加载后续插件前清零
+    plugin.onPluginLoaded(context, this.f, info, name, flags);   // 插件内 loadLibrary → JNI_OnLoad 写 slot
+}
+...
+r.doCommand(10102, { 插件名, str11, so 绝对路径 });
+```
+
+- 插件 so 的 `JNI_OnLoad` **只**把分发函数指针写进 `SGPluginExtras.slot`（实测 `0x13284f0b`）。
+- **真正把 2xxxx 插进主模块分发表的是随后的 10102**。
+- 手工驱动时漏掉 10102 → 分发表永远空 → 任何 2xxxx 都返回 `cmd*10000+9904`。
+
+### 正确初始化顺序（`SGRunner.initPlugins`）
+
+```
+10101 main 初始化 → main 插件 onPluginLoaded（router=null，返回 router）
+→ body 插件 onPluginLoaded（传入 router；内部 loadLibrary → JNI_OnLoad 写 slot）
+→ 10102 {name, "", soPath} 登记
+→ 20101 initSecurityBody(appKey, pkg)
+→ 20102 出 wua
+```
+
+### 实测输出
+
+```
+[RUN] native doCommand(10101) -> 0
+[RUN] native doCommand(10102) -> 0   slot=13284f0b
+[RUN] native doCommand(20101) -> true
+[RUN] native doCommand(20102) -> 51 字节 / 69 字符 base64 (flag=8)
+```
+
+同一参数连打三次输出各不相同（活计算，带随机 nonce）。
+`flag=4` / `flag=1` 报 `SecException(1412)`（参数要求不同，未展开）。
+
+## wua 命令行（阶段 5 集成形态）
+
+```bash
+export JAVA_HOME="C:/Program Files/Java/jdk-21"
+export MAVEN_OPTS="--add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED"
+
+cd reverse/unidbg-harness
+mvn -q exec:java -Dexec.mainClass=com.tmall.WuaCli -Dexec.args="12574478 8"
+# __WUA_JSON__ {"ok":true,"appKey":"12574478","flag":8,"ts":"...","wua":"...","len":69,"initMs":1204,"genMs":209}
+```
+
+- 初始化 ~1.2s，单次 wua ~210ms。
+- `--add-opens java.base/java.util` 是**必需**的：native 要遍历 `paramMap`（`HashMap$KeySet.toArray`），
+  JDK 21 模块系统默认拦掉，报 `InaccessibleObjectException`（表现为 doCommand 静默返回 null）。
+- `Runtime.halt()` 收尾：unicorn 在 JVM 正常 shutdown 时会 AV 崩溃，halt 跳过该流程。
+
+## 服务端验证工具
+
+`reverse/wua_probe.py`：
+
+```bash
+python reverse/wua_probe.py --gen-only                     # 只产 wua
+python reverse/wua_probe.py --cookies cookies.txt \
+    --api mtop.tmall.campus.member.app.user.get --compare  # 带/不带 wua 对比
+```
+
+注意：`mtop.common.getTimestamp` 这类公开接口**不校验** wua（带与不带都 SUCCESS），
+所以「没有报错」不代表 wua 有效。必须用需要登录态、且会校验反作弊头的接口。
+
+## 未解决
+
+1. **wua 是否被服务端接受** —— 待真实会话验证（阶段 4）。
+2. `10401 signRequest` 一律 `SecException(608)`（所有 requestType），疑与
+   `open/initialize/c.java` 的官方 APK 签名白名单有关（宿主 JVM 无 APK 签名）。属附加项，暂不展开。
