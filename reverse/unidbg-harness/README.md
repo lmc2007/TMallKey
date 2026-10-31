@@ -280,3 +280,65 @@ sel = 65535;      // ← 无条件覆盖，任何调用都 return null
 
 CM 建档只校验 `x-mini-wua`（20102）。`x-sign` 可以用 h5 的 `_m_h5_tk` token 做
 `md5(token&t&appKey&data)`（`fktm/water/mtop.py` 现有链路就是这么算的），不需要 SG。
+
+---
+
+## 2026-10-31 晚：四条关键修正（appKey / wua 长度 / middletier 入口 / AVMP）
+
+### 1. appKey 是 34270422
+
+设备 `shared_prefs/MtopConfigStore.xml` 的 `MTOPSDK_DEVICEID_STORE.34270422deviceId`
+暴露了真实 appKey；`ACCS_SDK.xml` 里也有 `appkey=34270422`。
+`12574478` 在整个 APK 的 dex 里**一次都没出现**。
+
+代码里已统一为 `SGRunner.APP_KEY`（可用 `-Dsg.appkey=` 覆盖）。
+
+### 2. x-mini-wua 的 69 字符是正常长度
+
+四种参数组合（ts/appKey/authCode/ext 各种 null 与非 null）输出**全部是 69 字符**。
+51 字节明文就是这个 SG 版本的定长格式，不是"设备信息缺失被压缩"。
+CSDN 文章里"短 wua 不能用"说的是 `wua` 头（AVMP 那条），不是 `x-mini-wua`。
+
+### 3. middletier 的入口是 IMiddleTierGenericComponent
+
+```
+getSign({data, env, appkey, auth_code})  → x-sign     内部就是 signRequest(type=7)
+getWua({data, env})                       → wua        AVMP: invokeAVMP2("sign_v2", ...)
+getMiniWua({env, extend_paras})           → x-miniwua 内部 getSecurityBodyDataEx(null,null,null,ext,8,env)
+```
+
+对应实现是被我裁掉的 `middletierplugin/d/b/a.java`。`getSign` 只是 signRequest 包装，
+所以 **x-sign 仍然卡在 10401**，与 middletier 无关。
+
+### 4. AVMP（模块 6）根本没注册；10401 是全局 gate
+
+```
+60101/60102/60201/60202/60206/60401/60402 → SecException(cmd*10000+9904)   没有 handler
+70201 createAVMPInstance                  → SecException(1905)
+10401  requestType 1..10                  → 全部 608（5~25ms，没算任何东西）
+```
+
+- 模块 6 = AVMP，在 unidbg 环境里从未注册（移走 `SG_INNER_DATA_AVMP` 让它重建也无效）。
+- 608 与 appKey / INPUT / requestType **全部无关**，是 signRequest 入口的前置检查。
+- `-Dsg.apkmap=true` 映射完整 APK：模块 6 仍 9904，且随后 unicorn `Invalid memory read` 崩溃。
+
+### 5. 两条后端都不支持 code hook
+
+| 后端 | 结果 |
+|---|---|
+| unicorn2 | 装上不回调（构造期 / 首次 dispatch 惰性装都试过） |
+| dynarmic（`-Dsg.backend=dynarmic`） | `hook_add_new` 抛 `UnsupportedOperationException` |
+
+所以 `0x11F73C` 的 `W20`、`sub_39338` 的内部状态都读不到；`traceCode` 太慢不实用。
+
+## 快速入口（推荐日常用这个）
+
+```bash
+export JAVA_HOME="C:/Program Files/Java/jdk-21"
+export MAVEN_OPTS="--add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED"
+cd reverse/unidbg-harness
+mvn -q exec:java -Dexec.mainClass=com.tmall.QuickRun     # 7~15 秒跑完
+```
+
+`QuickRun` 会做：initPlugins → 四种 20102 参数组合 → 模块 6/7 命令探测 → 10401 requestType 1..10。
+比 `RunJava`（3~4 分钟）快一个数量级，适合快速试参数。

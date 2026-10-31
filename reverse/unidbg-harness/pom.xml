@@ -19,6 +19,11 @@
     <dependencies>
         <dependency>
             <groupId>com.github.zhkl0228</groupId>
+            <artifactId>unidbg-dynarmic</artifactId>
+            <version>${unidbg.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.zhkl0228</groupId>
             <artifactId>unidbg-android</artifactId>
             <version>${unidbg.version}</version>
         </dependency>

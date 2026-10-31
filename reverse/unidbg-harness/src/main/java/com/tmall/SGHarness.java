@@ -50,8 +50,14 @@ public class SGHarness {
     private final DvmObject<?> context;
 
     public SGHarness(boolean verbose) {
-        emulator = AndroidEmulatorBuilder.for64Bit()
-                .setProcessName(PKG)
+        com.github.unidbg.EmulatorBuilder<com.github.unidbg.AndroidEmulator> builder =
+                AndroidEmulatorBuilder.for64Bit().setProcessName(PKG);
+        // hook 在 unicorn2 后端不回调，需要观测时切 dynarmic（-Dsg.backend=dynarmic）
+        if ("dynarmic".equals(System.getProperty("sg.backend"))) {
+            builder.addBackendFactory(new com.github.unidbg.arm.backend.DynarmicFactory(true));
+            System.out.println("[SG] backend = dynarmic");
+        }
+        emulator = builder
                 .addBackendFactory(new Unicorn2Factory(true))
                 .build();
         Memory memory = emulator.getMemory();

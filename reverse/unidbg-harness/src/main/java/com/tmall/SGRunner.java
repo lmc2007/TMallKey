@@ -44,6 +44,9 @@ import java.io.IOException;
  */
 public class SGRunner {
 
+    /** 真机 shared_prefs 里的 mtop appKey（MTOPSDK_DEVICEID_STORE.34270422deviceId） */
+    public static final String APP_KEY = System.getProperty("sg.appkey", "34270422");
+
     public static final String LIB_DIR = SGHarness.LIB_DIR;
     public static final String PKG = SGHarness.PKG;
 
@@ -60,10 +63,15 @@ public class SGRunner {
     private final Context context;
 
     public SGRunner(boolean verbose) throws IOException {
-        emulator = AndroidEmulatorBuilder.for64Bit()
-                .setProcessName(PKG)
-                .addBackendFactory(new Unicorn2Factory(true))
-                .build();
+        com.github.unidbg.EmulatorBuilder<com.github.unidbg.AndroidEmulator> builder =
+                AndroidEmulatorBuilder.for64Bit().setProcessName(PKG);
+        if ("dynarmic".equals(System.getProperty("sg.backend"))) {
+            builder.addBackendFactory(new com.github.unidbg.arm.backend.DynarmicFactory(true));
+            System.out.println("[RUN] backend = dynarmic");
+        } else {
+            builder.addBackendFactory(new Unicorn2Factory(true));
+        }
+        emulator = builder.build();
         Memory memory = emulator.getMemory();
         memory.setLibraryResolver(new LibDirResolver(
                 new File(LIB_DIR).getAbsoluteFile(), new AndroidResolver(23)));
@@ -245,47 +253,6 @@ public class SGRunner {
         dm.callJNI_OnLoad(emulator);
         System.out.println("[RUN] JNI_OnLoad ok");
 
-        // 查表指令处 hook：38F44 是 CMP W10, W23（W23=命令码，X10=entry 指针）。
-        // 命令表是运行时构造的，静态数据里搜不到，只能动态读。
-        if (Boolean.getBoolean("sg.tracetable")) {
-            final Module tm = module;
-            try {
-                emulator.getBackend().hook_add_new(new com.github.unidbg.arm.backend.CodeHook() {
-                    @Override
-                    public void hook(com.github.unidbg.arm.backend.Backend backend, long address, int size, Object user) {
-                        try {
-                            long cmd = backend.reg_read(unicorn.Arm64Const.UC_ARM64_REG_X23).longValue() & 0xffffffffL;
-                            long entry = backend.reg_read(unicorn.Arm64Const.UC_ARM64_REG_X10).longValue();
-                            if (cmd < 10000 || cmd > 40000) {
-                                return;
-                            }
-                            long handler = 0;
-                            try {
-                                handler = emulator.getMemory().pointer(entry).getLong(0);
-                            } catch (Throwable ignored) {
-                            }
-                            System.out.println("[TBL] cmd=" + cmd + " entry=0x" + Long.toHexString(entry)
-                                    + " handler=0x" + Long.toHexString(handler)
-                                    + (handler > tm.base && handler < tm.base + 0x200000L
-                                    ? " (libmain+0x" + Long.toHexString(handler - tm.base) + ")" : ""));
-                        } catch (Throwable ignored) {
-                        }
-                    }
-
-                    @Override
-                    public void onAttach(com.github.unidbg.arm.backend.UnHook unHook) {
-                    }
-
-                    @Override
-                    public void detach() {
-                    }
-                }, module.base + 0x3b34cL, module.base + 0x3b350L, null);
-                System.out.println("[RUN] table hook installed at 0x3b34c (entry probe)");
-            } catch (Throwable t) {
-                System.out.println("[RUN] table hook failed: " + t);
-            }
-        }
-
         // 0x11F740 是 libmain 里构造并抛出 SecException 的公共点。
         // addBreakPoint 会抛 InvalidMemoryAccessException，改用 CodeHook 抓 LR。
         if (Boolean.getBoolean("sg.throwbp")) {
@@ -421,10 +388,14 @@ public class SGRunner {
         }
     }
 
+    /** 供 QuickRun 之类做低层命令探测。 */
+    public Object probe(int code, Object... args) {
+        return dispatch(code, args);
+    }
+
     private Object dispatch(int code, Object[] args) {
-        if (Boolean.getBoolean("sg.tracetable") && code == 10401) {
-            // hook_add_new 在 unicorn2 后端不回调，改用内置 trace 看真实执行路径
-            emulator.traceCode(mainModule.base + 0x3b34cL, mainModule.base + 0x3b4d0L);
+        if (Boolean.getBoolean("sg.tracetable")) {
+            installEntryHook();
         }
         DvmObject<?>[] params = new DvmObject<?>[args == null ? 0 : args.length];
         for (int i = 0; i < params.length; i++) {
@@ -491,7 +462,7 @@ public class SGRunner {
         try {
             // 第 8 个参数是 SG 的数据根目录：真机是 <data>/app_SGLib（不是 files）
             mainPlugin.onPluginLoaded(context, router, mainInfo, "sgmain", 0,
-                    "12574478", "5.0.0", "/data/data/" + PKG + "/app_SGLib");
+                    APP_KEY, "5.0.0", "/data/data/" + PKG + "/app_SGLib");
             String mainSo = "/data/app/" + PKG + "-1/lib/arm64/libsgmainso-6.5.97.so";
             Object m0 = router.doCommand(10102, "sgmain", "6.5.97", mainSo);
             System.out.println("[RUN] register main(10102) -> " + SGHarness.describe(m0));
@@ -523,7 +494,7 @@ public class SGRunner {
         }
 
         // securitybody 的 wua 生成前要先 initSecurityBody(appKey, packageName)（命令 20101）
-        Object init = router.doCommand(20101, "12574478", PKG);
+        Object init = router.doCommand(20101, APP_KEY, PKG);
         System.out.println("[RUN] initSecurityBody(20101) -> " + SGHarness.describe(init));
 
         System.out.println("[RUN] === SecurityGuardMiddleTierPlugin.onPluginLoaded ===");
@@ -565,7 +536,7 @@ public class SGRunner {
         // useWua=true 时，10401 内部会用到 wua。先预热一次 20102，让 SG 内部缓存就绪。
         try {
             String warm = body.getSecurityBodyDataEx(String.valueOf(System.currentTimeMillis()),
-                    "12574478", "", null, 8, 0);
+                    APP_KEY, "", null, 8, 0);
             System.out.println("[WARM] wua 预热 -> " + (warm == null ? "null" : warm.length() + " chars"));
         } catch (Throwable t) {
             System.out.println("[WARM] wua 预热异常: " + t);
@@ -582,15 +553,15 @@ public class SGRunner {
             StringBuilder big = new StringBuilder();
             for (int i = 0; i < 21; i++) {
                 if (i > 0) big.append('&');
-                big.append(i == 3 ? "12574478" : (i == 4 ? md5Hex("{}") : "x"));
+                big.append(i == 3 ? APP_KEY : (i == 4 ? md5Hex("{}") : "x"));
             }
             String input21 = big.toString();
             System.out.println("[SIGN] input21 = " + input21);
             // authCode 之前一直是空串 —— 试 non-empty，native 很可能就是卡这个
-            for (String ac : new String[]{"h5", "12574478", "default", "keep", ""}) {
+            for (String ac : new String[]{"h5", APP_KEY, "default", "keep", ""}) {
                 com.alibaba.wireless.security.open.SecurityGuardParamContext ctx =
                         new com.alibaba.wireless.security.open.SecurityGuardParamContext();
-                ctx.appKey = "12574478";
+                ctx.appKey = APP_KEY;
                 ctx.requestType = 2;
                 ctx.paramMap.put("INPUT", input);
                 try {
@@ -604,7 +575,7 @@ public class SGRunner {
             for (int rt : new int[]{7, 3}) {
                 com.alibaba.wireless.security.open.SecurityGuardParamContext ctx =
                         new com.alibaba.wireless.security.open.SecurityGuardParamContext();
-                ctx.appKey = "12574478";
+                ctx.appKey = APP_KEY;
                 ctx.requestType = rt;
                 ctx.paramMap.put("INPUT", rt == 7 ? input21 : input);
                 try {
@@ -623,23 +594,29 @@ public class SGRunner {
             String api = "mtop.common.gettimestamp";
             String time = String.valueOf(System.currentTimeMillis());
             String md5v = md5Hex("{}");
-            String devId = "Antrb7uDc9emwB3hbOSi9Sr9tbLbhkIE5qPr-PwUlXva";
-            String data = "&&&12574478&" + md5v + "&" + time + "&" + api
+            // 设备上取到的真值：utdid 来自 shared_prefs/ACCS_SDK.xml，
+            // deviceId 来自 shared_prefs/MtopConfigStore.xml
+            String utdid = System.getProperty("sg.utdid", "apU98phzUu4DAOxRSTtO69oT");
+            String devId = System.getProperty("sg.deviceid",
+                    "Antrb7uDc9emwB3hbOSi9Sr9tbLbhkIE5qPr-PwUlXva");
+            String data = utdid + "&&&12574478&" + md5v + "&" + time + "&" + api
                     + "&1.0&&600000@taobao_android_5.0.0&" + devId + "&&&&27&&&&&&&";
             System.out.println("[M70102] data=" + data);
-            // 先直接 init middle tier（绕过 Java 接口），再取 factors
+            // 70101 已知报 2403（文章里也没调它），先跳过
             try {
-                Object i700 = router.doCommand(70101, "", 0);
-                System.out.println("[M700] 70101 init -> " + SGHarness.describe(i700)
-                        + "  err=" + com.alibaba.wireless.security.open.SecException.lastErrorCode);
+                Object i700 = Boolean.TRUE.equals(Boolean.FALSE) ? null : null;
+                if (i700 != null) {
+                    System.out.println("[M700] -> " + SGHarness.describe(i700));
+                }
                 com.alibaba.wireless.security.open.SecException.lastErrorCode = 0;
             } catch (Throwable t) {
                 System.out.println("[M700] 70101 异常: " + t);
             }
+            for (boolean uw : new boolean[]{false, true}) {
             try {
-                Object r = router.doCommand(70102, "12574478", data, Boolean.FALSE, 0,
+                Object r = router.doCommand(70102, APP_KEY, data, Boolean.valueOf(uw), 0,
                         api, "pageId=&pageName=", null, null, null);
-                System.out.println("[M70102] -> " + SGHarness.describe(r));
+                System.out.println("[M70102] useWua=" + uw + " -> " + SGHarness.describe(r));
                 if (r instanceof java.util.Map) {
                     for (Object e : ((java.util.Map<?, ?>) r).entrySet()) {
                         java.util.Map.Entry<?, ?> en = (java.util.Map.Entry<?, ?>) e;
@@ -649,7 +626,58 @@ public class SGRunner {
                     }
                 }
             } catch (Throwable t) {
-                System.out.println("[M70102] 异常: " + t);
+                System.out.println("[M70102] useWua=" + uw + " 异常: " + t);
+            }
+            }
+        }
+
+        // ---- AVMP 路线：长 wua / x-sign 的真正来源（middletier d/b/a.java）----
+        // createAVMPInstance("mwua","sgcipher2") -> 70201 返回 instanceId
+        // invokeAVMP2("sign_v2", byte[].class, {"vs_config_0", data, env, null, null}) -> 70204 返回 byte[] = wua
+        if (router != null) {
+            try {
+                Object idObj = router.doCommand(70201, "mwua", "sgcipher2");
+                System.out.println("[AVMP] 70201 create -> " + SGHarness.describe(idObj));
+                long id = -1;
+                Object v = idObj instanceof com.github.unidbg.linux.android.dvm.DvmObject
+                        ? ((com.github.unidbg.linux.android.dvm.DvmObject<?>) idObj).getValue() : idObj;
+                if (v instanceof Number) {
+                    id = ((Number) v).longValue();
+                }
+                System.out.println("[AVMP] instanceId=" + id
+                        + "  err=" + com.alibaba.wireless.security.open.SecException.lastErrorCode
+                        + " " + com.alibaba.wireless.security.open.SecException.lastMessage);
+                com.alibaba.wireless.security.open.SecException.lastErrorCode = 0;
+
+                if (id > 0) {
+                    String[] cands = new String[]{
+                            "apU98phzUu4DAOxRSTtO69oT&&&12574478&99914b932bd37a50b983c5e7c90ae93b&"
+                                    + System.currentTimeMillis() + "&mtop.common.gettimestamp&1.0&&"
+                                    + "600000@taobao_android_5.0.0&Antrb7uDc9emwB3hbOSi9Sr9tbLbhkIE5qPr-PwUlXva&&&&27&&&&&&&",
+                            "{}",
+                            "test"};
+                    for (String cand : cands) {
+                        try {
+                            Object r = router.doCommand(70204, Long.valueOf(id), "sign_v2", null,
+                                    new Object[]{"vs_config_0", cand.getBytes("UTF-8"), 0, null, null});
+                            String out = null;
+                            Object raw = r instanceof com.github.unidbg.linux.android.dvm.DvmObject
+                                    ? ((com.github.unidbg.linux.android.dvm.DvmObject<?>) r).getValue() : r;
+                            if (raw instanceof byte[]) {
+                                out = new String((byte[]) raw, "UTF-8");
+                            } else if (raw != null) {
+                                out = String.valueOf(raw);
+                            }
+                            System.out.println("[AVMP] 70204 sign_v2 len=" + cand.length() + " -> "
+                                    + (out == null ? "null" : out.length() + " chars: " + out));
+                        } catch (Throwable t) {
+                            System.out.println("[AVMP] 70204 sign_v2 异常: " + t);
+                        }
+                        com.alibaba.wireless.security.open.SecException.lastErrorCode = 0;
+                    }
+                }
+            } catch (Throwable t) {
+                System.out.println("[AVMP] 异常: " + t);
             }
         }
 
@@ -660,7 +688,7 @@ public class SGRunner {
                         mtPlugin.getInterface(
                                 com.alibaba.wireless.security.open.middletier.IUnifiedSecurityComponent.class);
                 // 2403 = init 阶段被拒，先试几种 authCode
-                for (String ac : new String[]{"", "h5", "12574478", "default"}) {
+                for (String ac : new String[]{"", "h5", APP_KEY, "default"}) {
                     java.util.HashMap<String, Object> im = new java.util.HashMap<>();
                     im.put("authCode", ac);
                     im.put("flag", 0);
@@ -675,10 +703,10 @@ public class SGRunner {
                 StringBuilder big = new StringBuilder();
                 for (int i = 0; i < 21; i++) {
                     if (i > 0) big.append('&');
-                    big.append(i == 3 ? "12574478" : (i == 4 ? md5Hex("{}") : "x"));
+                    big.append(i == 3 ? APP_KEY : (i == 4 ? md5Hex("{}") : "x"));
                 }
                 java.util.HashMap<String, Object> m = new java.util.HashMap<>();
-                m.put("appkey", "12574478");
+                m.put("appkey", APP_KEY);
                 m.put("data", big.toString());
                 m.put("useWua", Boolean.TRUE);
                 m.put("env", 0);
@@ -708,7 +736,7 @@ public class SGRunner {
             // 按 mtopsdk convertInnerBaseStrMap 的真实顺序拼 22 段（deviceId 用真机的）
             String tReal = String.valueOf(System.currentTimeMillis());
             String[] seg = new String[]{
-                    "", "", "", "12574478", md5Hex("{}"), tReal,
+                    "", "", "", APP_KEY, md5Hex("{}"), tReal,
                     "mtop.tmall.campus.member.app.user.get", "1.0", "", "600000@taobao_android_5.0.0",
                     "Antrb7uDc9emwB3hbOSi9Sr9tbLbhkIE5qPr-PwUlXva", "", "", "", "", "", "", "", "", "", "", ""
             };
@@ -718,7 +746,7 @@ public class SGRunner {
             m2.put("INPUT", realInput22);
             for (int rt : new int[]{7, 2}) {
                 try {
-                    Object r = router.doCommand(10401, m2, "12574478", rt, "", true);
+                    Object r = router.doCommand(10401, m2, APP_KEY, rt, "", true);
                     System.out.println("[REAL10401] rt=" + rt + " -> " + SGHarness.describe(r));
                 } catch (Throwable tt) {
                     System.out.println("[REAL10401] rt=" + rt + " 异常: " + tt);
@@ -730,7 +758,7 @@ public class SGRunner {
             for (boolean flag : new boolean[]{false, true}) {
                 for (int rt : new int[]{2, 7}) {
                     try {
-                        Object r = router.doCommand(10401, m, "12574478", rt, "", flag);
+                        Object r = router.doCommand(10401, m, APP_KEY, rt, "", flag);
                         System.out.println("[D10401] rt=" + rt + " bool=" + flag + " -> "
                                 + SGHarness.describe(r));
                     } catch (Throwable t) {
@@ -744,7 +772,7 @@ public class SGRunner {
         // 同一参数连打 3 次：判断是活计算还是缓存/降级
         for (int k = 0; k < 3; k++) {
             try {
-                String w = body.getSecurityBodyDataEx(ts, "12574478", "", null, 8, 0);
+                String w = body.getSecurityBodyDataEx(ts, APP_KEY, "", null, 8, 0);
                 System.out.println("[WUA] rep" + k + " -> " + (w == null ? "null" : w.length() + " chars: " + w));
             } catch (Throwable t) {
                 System.out.println("[WUA] rep" + k + " 异常: " + t);
@@ -752,7 +780,7 @@ public class SGRunner {
         }
         for (int flag : new int[]{8, 4, 1}) {
             try {
-                String wua = body.getSecurityBodyDataEx(ts, "12574478", "", null, flag, 0);
+                String wua = body.getSecurityBodyDataEx(ts, APP_KEY, "", null, flag, 0);
                 System.out.println("[WUA] flag=" + flag + " -> "
                         + (wua == null ? "null" : wua.length() + " chars: "
                         + wua.substring(0, Math.min(120, wua.length()))));
