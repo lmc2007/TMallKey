@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.tmall</groupId>
+    <artifactId>sg-java</artifactId>
+    <version>0.1.0</version>
+    <packaging>jar</packaging>
+
+    <!--
+      SecurityGuard 的 Java 编排层（libsgmain / libsgmiddletier / libsgsecuritybody 三个 zip 里的
+      classes.dex，jadx 反编译结果）+ 从 APK 取的 framework/open/sdk 接口。
+      目的：在宿主 JVM 里真跑 SG 自己的插件加载流程，让 native 的命令分发表被正确注册。
+    -->
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.release>17</maven.compiler.release>
+        <android.jar>C:/Users/64702/AppData/Local/Android/Sdk/platforms/android-33/android.jar</android.jar>
+    </properties>
+
+    <dependencies>
+        <!-- 只为编译通过：android.jar 方法体是 "Stub!"，运行时由 android-impl 覆盖 -->
+        <dependency>
+            <groupId>com.google.android</groupId>
+            <artifactId>android</artifactId>
+            <version>33</version>
+            <scope>system</scope>
+            <systemPath>${android.jar}</systemPath>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+                <configuration>
+                    <failOnWarning>false</failOnWarning>
+                    <compilerArgs>
+                        <arg>-Xmaxerrs</arg>
+                        <arg>5000</arg>
+                    </compilerArgs>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

@@ -88,15 +88,27 @@ README 里有完整事实表、命令码、JNI 桩坑与 bootstrap 步骤。
       unidbg 不接受裸 `Object[]`（要 `ArrayObject`）；`SGPluginExtras.slot` 必须真存；
       `fstatat(dirfd, NULL)` 让 unidbg NPE（已打补丁，见 `patches/`）。
 
-- [ ] **阶段 3 · wua 产出** —— 🔴 **当前阻塞**
-      `doCommand(20102, {ts, appKey, 8, authCode, ext, env})` 返回 `201029904`
-      （= cmd×10000 + 9904），`20101 initSecurityBody` 同样 9904。
-      证据：IDA 在 `libsgmainso` 0x38F68 处找到 `MOV W9,#0x26B0; ADD W8,W8,W9`，
-      即错误码由主模块拼出 = 主模块分发表里没有 2xxxx 处理器。
-      根因：securitybody 的命令要靠 Java 侧 `SGPluginManager → onPluginLoaded()` 注册，
-      而 **unidbg 的 DVM 不执行 dex 字节码**（只做签名/反射桥），那段 Java 永远跑不到。
-      三条出路（按成本排）：① 直接调 `SGPluginExtras.slot` 指向的 body 分发函数（IDA 定签名）；
-      ② 宿主 JVM 跑真 Java 层；③ 改走 middletier 的 `getUnifiedSign`（15xxx）。
+- [~] **阶段 3 · wua 产出** —— 🔴 阻塞，已定路线（2026-10-31 16:20）
+      `doCommand(20102, …)` / `20101` 均返回 `201029904`。
+
+      **9904 的语义已经用 IDA 查实（不是猜）**：`libsgmainso` 0x38F10–0x38F68 是一个
+      **线性查表循环** `for(i) if(table[i]->cmd == cmd) goto handler;`，没命中就走
+      `MOV W9,#0x26B0; ADD W8,W8,W9`（cmd×10000 + 9904）。即 **2xxxx 不在分发表里**，
+      不是参数错、不是初始化没跑完。
+
+      **三条路已经排掉两条**：
+      - ① 直接调 slot：❌ 实测否定（iolog 证明 native 初始化全程**没碰** `lib/arm64`，
+        不 dlopen 任何插件 so）。表是空的，绕过 Java 调 slot 也接不上。
+      - ③ 改走 middletier `getUnifiedSign`：❌ 同一个病根（15xxx 也要 Java 注册）。
+      - ② **宿主 JVM 跑 SG 的 Java 编排层**：✅ 选定。工程在 `reverse/sg-java/`。
+
+      **为什么只有②能成**：插表动作在 `SGPluginManager → onPluginLoaded` 这条 Java 链上，
+      而 unidbg 的 DVM 不执行 dex 字节码（只提供签名表 + 反射桥）。Java 不跑，表永远空。
+
+      当前进度：`reverse/sg-java` 已把三个插件 dex 的 Java 层 + 接口编进宿主 JVM 工程，
+      编译错误 259 → ~90（剩余是 jadx 产物畸变与少量接口签名不一致，机械修）。
+      下一步：清完编译 → 写 android-impl 覆盖 `Stub!` → harness 切 `ProxyClassFactory`
+      让真 Java 驱动 → 验收 `20102` 吐 wua。
 
 - [ ] 阶段 4 · 一致性验证（unidbg 产物 vs 真机抓包；CM❌ 会话 + 自产 wua 建档）
 - [ ] 阶段 5 · fkTM 集成（wua 生成器落地方式届时定）
@@ -108,8 +120,8 @@ README 里有完整事实表、命令码、JNI 桩坑与 bootstrap 步骤。
 
 | 维度         | 评估                                    |
 | ---------- | ------------------------------------- |
-| 工程量        | 阶段 1~2 已用 1 天；阶段 3 取决于走哪条出路（① 最快）      |
-| 技术风险       | 中高（unidbg 不执行 dex 是硬约束，必须绕插件注册）        |
+| 工程量        | 阶段 1~2 = 1 天；阶段 3 走②，已从 259 个编译错误收到 ~90 |
+| 技术风险       | 中（② 的未知量集中在 Android 框架桩与签名校验）           |
 | 维护成本       | 高（每次更新重适配）                            |
 | 收益         | 免 root 全功能；摆脱补丁版依赖                    |
 

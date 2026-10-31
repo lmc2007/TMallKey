@@ -55,7 +55,9 @@ public class SGHarness {
                 .addBackendFactory(new Unicorn2Factory(true))
                 .build();
         Memory memory = emulator.getMemory();
-        memory.setLibraryResolver(new AndroidResolver(23));
+        // 前半段：从提取目录找插件 so（native 自己 dlopen 用）；找不到再交给 Android 系统库
+        memory.setLibraryResolver(new LibDirResolver(
+                new File(LIB_DIR).getAbsoluteFile(), new AndroidResolver(23)));
 
         vm = emulator.createDalvikVM();
         vm.setVerbose(verbose);
@@ -113,6 +115,19 @@ public class SGHarness {
         emulator.getSyscallHandler().addIOResolver(new IOResolver<AndroidFileIO>() {
             @Override
             public FileResult<AndroidFileIO> resolve(Emulator<AndroidFileIO> emu, String pathname, int oflags) {
+                String libPrefix = "/data/app/" + PKG + "-1/lib/arm64/";
+                if (pathname.startsWith(libPrefix)) {
+                    String rel = pathname.substring(libPrefix.length());
+                    File host = new File(LIB_DIR, rel);
+                    if (host.isDirectory()) {
+                        return FileResult.success(new DirectoryFileIO(oflags, pathname, host));
+                    }
+                    if (host.isFile()) {
+                        return FileResult.success(new SimpleFileIO(oflags, host, pathname));
+                    }
+                    System.out.println("[IO-MISS] lib " + pathname);
+                    return null;
+                }
                 String prefix = "/data/data/" + PKG + "/";
                 if (!pathname.startsWith(prefix)) {
                     return null;
@@ -263,8 +278,11 @@ public class SGHarness {
         SGHarness harness = new SGHarness(verbose);
         if (doInit) {
             harness.initialize(0, "12574478", "5.0.0", "/data/data/" + PKG + "/files");
-            harness.loadPluginModules("libsgcore.so", "libsgmiddletierso-6.5.90.so",
-                    "libsgsecuritybodyso-6.5.104.so");
+            // 插件 so 不手工装：native 初始化时会自己 dlopen，手工装会跳过注册链（9904 的根因）
+            if (System.getProperty("sg.manual.plugins") != null) {
+                harness.loadPluginModules("libsgcore.so", "libsgmiddletierso-6.5.90.so",
+                        "libsgsecuritybodyso-6.5.104.so");
+            }
             // 试打 securitybody 的 getSecurityBodyDataEx（20102）
             // Java: doCommand(20102, {arg0, appKey, flag, authCode, extString, env})
             // 10401 = signRequest(map, appKey, requestType, secret, true)
