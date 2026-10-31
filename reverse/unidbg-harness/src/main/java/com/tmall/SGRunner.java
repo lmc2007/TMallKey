@@ -93,6 +93,20 @@ public class SGRunner {
                     System.out.println("[IO-MISS] apk " + pathname + "（找不到本地 APK）");
                     return null;
                 }
+                // 插件 so 的 Android 路径：10102 登记时 native 要按这个路径去 open
+                String libPrefix = "/data/app/" + PKG + "-1/lib/arm64/";
+                if (pathname.startsWith(libPrefix)) {
+                    File host = new File(LIB_DIR, pathname.substring(libPrefix.length()));
+                    if (host.isFile()) {
+                        return com.github.unidbg.file.FileResult.success(
+                                new com.github.unidbg.linux.file.SimpleFileIO(oflags, host, pathname));
+                    }
+                    if (Boolean.getBoolean("sg.iolog")) {
+                        System.out.println("[IO] lib-miss " + pathname);
+                    }
+                    return null;
+                }
+
                 // /dev/__properties__：SG 在 native 侧直接读 Android property（不走 Java Build）。
                 // 把真机拉下来的 prop area 喂给它，环境判定才可能与真机一致。
                 if (pathname.startsWith("/dev/__properties__")) {
@@ -478,7 +492,7 @@ public class SGRunner {
             // 第 8 个参数是 SG 的数据根目录：真机是 <data>/app_SGLib（不是 files）
             mainPlugin.onPluginLoaded(context, router, mainInfo, "sgmain", 0,
                     "12574478", "5.0.0", "/data/data/" + PKG + "/app_SGLib");
-            String mainSo = new java.io.File(LIB_DIR, "libsgmainso-6.5.97.so").getAbsolutePath();
+            String mainSo = "/data/app/" + PKG + "-1/lib/arm64/libsgmainso-6.5.97.so";
             Object m0 = router.doCommand(10102, "sgmain", "6.5.97", mainSo);
             System.out.println("[RUN] register main(10102) -> " + SGHarness.describe(m0));
             System.out.println("[RUN] main plugin loaded");
@@ -498,7 +512,7 @@ public class SGRunner {
             // 框架在插件 onPluginLoaded 之后会调 10102 把插件登记进 native（d.java:855）。
             // 不调这一步，主模块的 2xxxx 分发表永远是空的 → 9904。
             // 参数照 d.java: objArr = {插件名, str11, so 绝对路径}
-            String bodySo = new java.io.File(LIB_DIR, "libsgsecuritybodyso-6.5.104.so").getAbsolutePath();
+            String bodySo = "/data/app/" + PKG + "-1/lib/arm64/libsgsecuritybodyso-6.5.104.so";
             Object reg = router.doCommand(10102, "sgsecuritybody", "6.5.104", bodySo);
             System.out.println("[RUN] register plugin(10102) -> " + SGHarness.describe(reg)
                     + "   slot=" + Long.toHexString(com.alibaba.wireless.security.framework.SGPluginExtras.slot));
@@ -521,7 +535,7 @@ public class SGRunner {
             mtPlugin.onPluginLoaded(context, router, mtInfo, "sgmiddletier", 0);
             System.out.println("[RUN] middletier JNI_OnLoad 后 slot=0x"
                     + Long.toHexString(com.alibaba.wireless.security.framework.SGPluginExtras.slot));
-            String mtSo = new java.io.File(LIB_DIR, "libsgmiddletierso-6.5.90.so").getAbsolutePath();
+            String mtSo = "/data/app/" + PKG + "-1/lib/arm64/libsgmiddletierso-6.5.90.so";
             Object mreg = router.doCommand(10102, "sgmiddletier", "6.5.90", mtSo);
             System.out.println("[RUN] register middletier(10102) -> " + SGHarness.describe(mreg)
                     + "   slot=0x" + Long.toHexString(com.alibaba.wireless.security.framework.SGPluginExtras.slot));
@@ -602,6 +616,41 @@ public class SGRunner {
             }
         } catch (Throwable t) {
             System.out.println("[SIGN] 组件获取失败: " + t);
+        }
+
+        // ---- 直接调 70102（照 CSDN 文章的 9 参数格式，useWua=false）----
+        if (router != null) {
+            String api = "mtop.common.gettimestamp";
+            String time = String.valueOf(System.currentTimeMillis());
+            String md5v = md5Hex("{}");
+            String devId = "Antrb7uDc9emwB3hbOSi9Sr9tbLbhkIE5qPr-PwUlXva";
+            String data = "&&&12574478&" + md5v + "&" + time + "&" + api
+                    + "&1.0&&600000@taobao_android_5.0.0&" + devId + "&&&&27&&&&&&&";
+            System.out.println("[M70102] data=" + data);
+            // 先直接 init middle tier（绕过 Java 接口），再取 factors
+            try {
+                Object i700 = router.doCommand(70101, "", 0);
+                System.out.println("[M700] 70101 init -> " + SGHarness.describe(i700)
+                        + "  err=" + com.alibaba.wireless.security.open.SecException.lastErrorCode);
+                com.alibaba.wireless.security.open.SecException.lastErrorCode = 0;
+            } catch (Throwable t) {
+                System.out.println("[M700] 70101 异常: " + t);
+            }
+            try {
+                Object r = router.doCommand(70102, "12574478", data, Boolean.FALSE, 0,
+                        api, "pageId=&pageName=", null, null, null);
+                System.out.println("[M70102] -> " + SGHarness.describe(r));
+                if (r instanceof java.util.Map) {
+                    for (Object e : ((java.util.Map<?, ?>) r).entrySet()) {
+                        java.util.Map.Entry<?, ?> en = (java.util.Map.Entry<?, ?>) e;
+                        String v = String.valueOf(en.getValue());
+                        System.out.println("[M70102]   " + en.getKey() + " (" + v.length() + ") = "
+                                + (v.length() > 80 ? v.substring(0, 80) : v));
+                    }
+                }
+            } catch (Throwable t) {
+                System.out.println("[M70102] 异常: " + t);
+            }
         }
 
         // ---- getSecurityFactors：mtop 真正的反作弊头入口（一次给全部 4 个头）----
