@@ -35,15 +35,15 @@ public class Context {
     private String dataDir = "/data/data/com.tmall.campus";
 
     public Context() {
-        this.filesDir = new File(dataDir, "files");
-        this.cacheDir = new File(dataDir, "cache");
+        this.filesDir = new android.AndroidPathFile(dataDir + "/files");
+        this.cacheDir = new android.AndroidPathFile(dataDir + "/cache");
     }
 
     public Context(String packageName, String dataDir) {
         this.packageName = packageName;
         this.dataDir = dataDir;
-        this.filesDir = new File(dataDir, "files");
-        this.cacheDir = new File(dataDir, "cache");
+        this.filesDir = new android.AndroidPathFile(dataDir + "/files");
+        this.cacheDir = new android.AndroidPathFile(dataDir + "/cache");
     }
 
     public String getPackageName() {
@@ -67,15 +67,15 @@ public class Context {
     }
 
     public File getCodeCacheDir() {
-        return new File(dataDir, "code_cache");
+        return new android.AndroidPathFile(dataDir + "/code_cache");
     }
 
     public File getDir(String name, int mode) {
-        return new File(dataDir, "app_" + name);
+        return new android.AndroidPathFile(dataDir + "/app_" + name);
     }
 
     public File getDatabasePath(String name) {
-        return new File(dataDir + "/databases/" + name);
+        return new android.AndroidPathFile(dataDir + "/databases/" + name);
     }
 
     public String getDataDir() {
@@ -102,8 +102,11 @@ public class Context {
         return android.content.pm.ApplicationInfo.of(packageName);
     }
 
+    private static final android.content.res.AssetManager ASSETS =
+            new android.content.res.AssetManager();
+
     public android.content.res.AssetManager getAssets() {
-        return new android.content.res.AssetManager();
+        return ASSETS;
     }
 
     public ClassLoader getClassLoader() {

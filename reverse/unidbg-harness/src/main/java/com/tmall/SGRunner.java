@@ -51,6 +51,7 @@ public class SGRunner {
     private SecurityGuardMainPlugin mainPlugin;
     /** middletier：getSecurityFactors 一次产出 x-sign / wua / x-mini-wua / x-umt / x-sgext */
     private com.alibaba.wireless.security.middletierplugin.SecurityGuardMiddleTierPlugin mtPlugin;
+    private IRouterComponent router;
     private final AndroidEmulator emulator;
     private final VM vm;
     private final SGJni jni;
@@ -76,6 +77,52 @@ public class SGRunner {
             public com.github.unidbg.file.FileResult<com.github.unidbg.file.linux.AndroidFileIO> resolve(
                     com.github.unidbg.Emulator<com.github.unidbg.file.linux.AndroidFileIO> emu,
                     String pathname, int oflags) {
+                if (Boolean.getBoolean("sg.iolog")) {
+                    System.out.println("[IO-REQ] " + pathname + "  flags=0x" + Integer.toHexString(oflags));
+                }
+                // SG 从 APK 里读安全图片（res/drawable/yw_1222.jpg）。日志显示 native 会反复打开
+                // /data/app/<pkg>-1/base.apk，不映射过去就拿不到安全图片 → 所有签名失败。
+                if (Boolean.getBoolean("sg.apkmap") && pathname.startsWith("/data/app/") && pathname.endsWith(".apk")) {
+                    File apk = resolveApk();
+                    if (apk != null) {
+                        System.out.println("[IO] map " + pathname + " -> " + apk);
+                        return com.github.unidbg.file.FileResult.success(
+                                new com.github.unidbg.linux.file.SimpleFileIO(oflags, apk, pathname));
+                    }
+                    System.out.println("[IO-MISS] apk " + pathname + "（找不到本地 APK）");
+                    return null;
+                }
+                // SG 会用相对路径 open（内部先 chdir 到数据目录），形如 "5.0.0/SG_INNER_DATA_AVMP"。
+                // 真机数据落在 <data>/app_SGLib/ 下且没有版本子目录，所以这里做两级映射。
+                if (!pathname.startsWith("/")) {
+                    File base = new File(dataRoot, "app_SGLib");
+                    File cand = new File(base, pathname);
+                    if (!cand.isFile()) {
+                        int slash = pathname.indexOf('/');
+                        if (slash > 0) {
+                            cand = new File(base, pathname.substring(slash + 1));
+                        }
+                    }
+                    if (cand.isFile()) {
+                        return com.github.unidbg.file.FileResult.success(
+                                new com.github.unidbg.linux.file.SimpleFileIO(oflags, cand, pathname));
+                    }
+                    File parent = cand.getParentFile();
+                    if (parent != null && !parent.exists()) {
+                        parent.mkdirs();
+                    }
+                    if ((oflags & 3) != 0) {
+                        try {
+                            if (cand.createNewFile()) {
+                                return com.github.unidbg.file.FileResult.success(
+                                        new com.github.unidbg.linux.file.SimpleFileIO(oflags, cand, pathname));
+                            }
+                        } catch (java.io.IOException ignored) {
+                        }
+                    }
+                    System.out.println("[IO-MISS-REL] " + pathname + " -> " + cand);
+                    return null;
+                }
                 String prefix = "/data/data/" + PKG + "/";
                 if (!pathname.startsWith(prefix)) {
                     return null;
@@ -137,6 +184,19 @@ public class SGRunner {
         dm.callJNI_OnLoad(emulator);
         System.out.println("[RUN] JNI_OnLoad ok");
 
+        // 0x11F740 是 libmain 里构造并抛出 SecException 的公共点。
+        // 在这里打点抓 LR，就能知道 608/2403 到底是哪段代码抛的。
+        if (Boolean.getBoolean("sg.throwbp")) {
+            emulator.attach().addBreakPoint(module, 0x11f740L,
+                    (emu, address) -> {
+                        long lr = emu.getContext().getLR();
+                        System.out.println("[BP-THROW] LR=0x" + Long.toHexString(lr)
+                                + " off=0x" + Long.toHexString(lr - module.base));
+                        return true;
+                    });
+            System.out.println("[RUN] throw breakpoint installed at 0x11f740");
+        }
+
         // 必须用 Application：SG 里多处判断 context instanceof Application
         context = new android.app.Application(PKG, "/data/data/" + PKG);
 
@@ -160,6 +220,29 @@ public class SGRunner {
                 System.out.println("[RUN] loadLibrary(" + name + ") 失败: " + t);
             }
         });
+    }
+
+    /** 从工作目录往上找官方 APK（安全图片就在它里面）。 */
+    private static File resolveApk() {
+        String explicit = System.getProperty("sg.apk");
+        if (explicit != null) {
+            File f = new File(explicit);
+            return f.isFile() ? f : null;
+        }
+        // 优先用 ASCII 文件名：SimpleFileIO 打不开含中文的路径（会报"拒绝访问"）
+        for (String prefix : new String[]{"", "../", "../../", "../../../", "../../../../"}) {
+            for (String name : new String[]{"tools/unidbg-tmall/tmall-base.apk", "天猫校园.apk"}) {
+                File f = new File(prefix + name);
+                if (f.isFile()) {
+                    try {
+                        return f.getCanonicalFile();
+                    } catch (java.io.IOException e) {
+                        return f.getAbsoluteFile();
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     private static String md5Hex(String s) {
@@ -253,14 +336,15 @@ public class SGRunner {
      * 返回可直接调 wua 的 body 组件（失败返回 null）。
      */
     public ISecurityBodyComponent initPlugins() {
-        IRouterComponent router = new C0001();
+        router = new C0001();
 
         System.out.println("[RUN] === SecurityGuardMainPlugin.onPluginLoaded ===");
         mainPlugin = new SecurityGuardMainPlugin();
         ISGPluginInfo mainInfo = new PluginInfo("sgmain", "6.5.97", mainPlugin);
         try {
+            // 第 8 个参数是 SG 的数据根目录：真机是 <data>/app_SGLib（不是 files）
             mainPlugin.onPluginLoaded(context, router, mainInfo, "sgmain", 0,
-                    "12574478", "5.0.0", "/data/data/" + PKG + "/files");
+                    "12574478", "5.0.0", "/data/data/" + PKG + "/app_SGLib");
             String mainSo = new java.io.File(LIB_DIR, "libsgmainso-6.5.97.so").getAbsolutePath();
             Object m0 = router.doCommand(10102, "sgmain", "6.5.97", mainSo);
             System.out.println("[RUN] register main(10102) -> " + SGHarness.describe(m0));
@@ -338,20 +422,32 @@ public class SGRunner {
             }
             String input21 = big.toString();
             System.out.println("[SIGN] input21 = " + input21);
-            for (int rt : new int[]{2, 7, 9, 3, 10}) {
+            // authCode 之前一直是空串 —— 试 non-empty，native 很可能就是卡这个
+            for (String ac : new String[]{"h5", "12574478", "default", "keep", ""}) {
+                com.alibaba.wireless.security.open.SecurityGuardParamContext ctx =
+                        new com.alibaba.wireless.security.open.SecurityGuardParamContext();
+                ctx.appKey = "12574478";
+                ctx.requestType = 2;
+                ctx.paramMap.put("INPUT", input);
+                try {
+                    String sg = sig.signRequest(ctx, ac);
+                    System.out.println("[SIGN] rt=2 authCode='" + ac + "' -> " + sg
+                            + (md5Hex(input).equalsIgnoreCase(String.valueOf(sg)) ? "   ★== md5" : ""));
+                } catch (Throwable t) {
+                    System.out.println("[SIGN] rt=2 authCode='" + ac + "' 异常: " + t);
+                }
+            }
+            for (int rt : new int[]{7, 3}) {
                 com.alibaba.wireless.security.open.SecurityGuardParamContext ctx =
                         new com.alibaba.wireless.security.open.SecurityGuardParamContext();
                 ctx.appKey = "12574478";
                 ctx.requestType = rt;
                 ctx.paramMap.put("INPUT", rt == 7 ? input21 : input);
                 try {
-                    String sg = sig.signRequest(ctx, "");
-                    String md5 = md5Hex(rt == 7 ? input21 : input);
-                    System.out.println("[SIGN] rt=" + rt + " -> " + sg
-                            + "   md5(INPUT)=" + md5
-                            + (md5.equalsIgnoreCase(String.valueOf(sg)) ? "   ★一致" : ""));
+                    String sg = sig.signRequest(ctx, "h5");
+                    System.out.println("[SIGN] rt=" + rt + " authCode=h5 -> " + sg);
                 } catch (Throwable t) {
-                    System.out.println("[SIGN] rt=" + rt + " 异常: " + t);
+                    System.out.println("[SIGN] rt=" + rt + " authCode=h5 异常: " + t);
                 }
             }
         } catch (Throwable t) {
@@ -405,6 +501,23 @@ public class SGRunner {
                 }
             } catch (Throwable t) {
                 System.out.println("[UNIFIED] 异常: " + t);
+            }
+        }
+
+        // 直接打 10401：对比第 5 个布尔参数 true/false（C0030 传 true，C0042 传 false）
+        if (router != null) {
+            java.util.HashMap<String, String> m = new java.util.HashMap<>();
+            m.put("INPUT", "hello&world&12574478");
+            for (boolean flag : new boolean[]{false, true}) {
+                for (int rt : new int[]{2, 7}) {
+                    try {
+                        Object r = router.doCommand(10401, m, "12574478", rt, "", flag);
+                        System.out.println("[D10401] rt=" + rt + " bool=" + flag + " -> "
+                                + SGHarness.describe(r));
+                    } catch (Throwable t) {
+                        System.out.println("[D10401] rt=" + rt + " bool=" + flag + " 异常: " + t);
+                    }
+                }
             }
         }
 

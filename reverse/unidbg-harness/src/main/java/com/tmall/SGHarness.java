@@ -36,7 +36,7 @@ public class SGHarness {
     /** 资产目录：默认从 CWD 往上找 tools/unidbg-tmall，也可用 -Dsg.libdir 指定 */
     public static final String LIB_DIR = resolveDir("sg.libdir", "tools/unidbg-tmall/libs");
     public static final String DATA_DIR = resolveDir("sg.datadir", "tools/unidbg-tmall/sgdata");
-    public static final String PKG = "com.tmall.campus";
+    public static final String PKG = "com.tmall.campus.and";
     public static final String SGMAIN = "libsgmainso-6.5.97.so";
     public static final String JNI_CLASS = "com/taobao/wireless/security/adapter/JNICLibrary";
     public static final String DO_COMMAND_SIG =

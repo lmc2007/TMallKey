@@ -12,7 +12,27 @@ import java.io.InputStream;
  */
 public class AssetManager {
 
-    private File assetDir = new File("tools/unidbg-tmall/assets");
+    /**
+     * 工作目录不固定（CLI 在 reverse/unidbg-harness 下跑），必须往上找。
+     * 找不到就当空 assets —— SG 读安全图片失败会直接导致签名报错。
+     */
+    private static File resolveAssetDir() {
+        String explicit = System.getProperty("sg.assets");
+        if (explicit != null) {
+            return new File(explicit);
+        }
+        for (String prefix : new String[]{"", "../", "../../", "../../../", "../../../../"}) {
+            File f = new File(prefix + "tools/unidbg-tmall/assets");
+            if (f.isDirectory()) {
+                return f.getAbsoluteFile();
+            }
+        }
+        return new File("tools/unidbg-tmall/assets");
+    }
+
+    private static final File DEFAULT_ASSET_DIR = resolveAssetDir();
+
+    private File assetDir = DEFAULT_ASSET_DIR;
 
     public void setAssetDir(File dir) {
         this.assetDir = dir;
@@ -23,6 +43,7 @@ public class AssetManager {
         if (f.isFile()) {
             return new FileInputStream(f);
         }
+        System.out.println("[ASSET-MISS] " + fileName + "  (dir=" + assetDir + ")");
         return new ByteArrayInputStream(new byte[0]);
     }
 
