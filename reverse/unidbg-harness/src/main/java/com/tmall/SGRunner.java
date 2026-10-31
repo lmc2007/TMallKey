@@ -54,6 +54,7 @@ public class SGRunner {
     private IRouterComponent router;
     private final AndroidEmulator emulator;
     private final VM vm;
+    private Module mainModule;
     private final SGJni jni;
     private final DvmClass jniLibrary;
     private final Context context;
@@ -92,6 +93,51 @@ public class SGRunner {
                     System.out.println("[IO-MISS] apk " + pathname + "（找不到本地 APK）");
                     return null;
                 }
+                // /dev/__properties__：SG 在 native 侧直接读 Android property（不走 Java Build）。
+                // 把真机拉下来的 prop area 喂给它，环境判定才可能与真机一致。
+                if (pathname.startsWith("/dev/__properties__")) {
+                    File propDir = new File(dataRoot, "properties");
+                    String rel = pathname.substring("/dev/__properties__".length()).replaceFirst("^/+", "");
+                    if (rel.isEmpty()) {
+                        // 必须对外暴露 Android 的原始文件名（含冒号），否则 bionic 找不到对应 context 的 area
+                        java.util.List<com.github.unidbg.linux.file.DirectoryFileIO.DirectoryEntry> list =
+                                new java.util.ArrayList<>();
+                        list.add(new com.github.unidbg.linux.file.DirectoryFileIO.DirectoryEntry(true, "property_info"));
+                        list.add(new com.github.unidbg.linux.file.DirectoryFileIO.DirectoryEntry(true, "properties_serial"));
+                        for (String c : new String[]{"build_prop", "default_prop", "system_prop",
+                                "vendor_default_prop"}) {
+                            list.add(new com.github.unidbg.linux.file.DirectoryFileIO.DirectoryEntry(
+                                    true, "u:object_r:" + c + ":s0"));
+                        }
+                        System.out.println("[IO] prop dir -> " + list.size() + " entries");
+                        return com.github.unidbg.file.FileResult.success(
+                                new com.github.unidbg.linux.file.DirectoryFileIO(
+                                        oflags, pathname,
+                                        list.toArray(new com.github.unidbg.linux.file.DirectoryFileIO.DirectoryEntry[0])));
+                    }
+                    String local = rel;
+                    if (rel.startsWith("u:object_r:")) {
+                        String inner = rel.substring("u:object_r:".length());
+                        int c = inner.indexOf(':');
+                        if (c > 0) {
+                            inner = inner.substring(0, c);
+                        }
+                        local = "p_" + inner;
+                    }
+                    File f = new File(propDir, local);
+                    if (f.isFile()) {
+                        if (Boolean.getBoolean("sg.iolog")) {
+                            System.out.println("[IO] prop " + pathname + " -> " + local);
+                        }
+                        return com.github.unidbg.file.FileResult.success(
+                                new com.github.unidbg.linux.file.SimpleFileIO(oflags, f, pathname));
+                    }
+                    if (Boolean.getBoolean("sg.iolog")) {
+                        System.out.println("[IO] prop-missing " + pathname);
+                    }
+                    return null;
+                }
+
                 // SG 会用相对路径 open（内部先 chdir 到数据目录），形如 "5.0.0/SG_INNER_DATA_AVMP"。
                 // 真机数据落在 <data>/app_SGLib/ 下且没有版本子目录，所以这里做两级映射。
                 if (!pathname.startsWith("/")) {
@@ -178,11 +224,53 @@ public class SGRunner {
         File so = new File(LIB_DIR, SGHarness.SGMAIN);
         DalvikModule dm = vm.loadLibrary(so, true);
         Module module = dm.getModule();
+        mainModule = module;
         System.out.println("[RUN] loaded " + module.name + " base=0x" + Long.toHexString(module.base));
 
         jniLibrary = vm.resolveClass(SGHarness.JNI_CLASS);
         dm.callJNI_OnLoad(emulator);
         System.out.println("[RUN] JNI_OnLoad ok");
+
+        // 查表指令处 hook：38F44 是 CMP W10, W23（W23=命令码，X10=entry 指针）。
+        // 命令表是运行时构造的，静态数据里搜不到，只能动态读。
+        if (Boolean.getBoolean("sg.tracetable")) {
+            final Module tm = module;
+            try {
+                emulator.getBackend().hook_add_new(new com.github.unidbg.arm.backend.CodeHook() {
+                    @Override
+                    public void hook(com.github.unidbg.arm.backend.Backend backend, long address, int size, Object user) {
+                        try {
+                            long cmd = backend.reg_read(unicorn.Arm64Const.UC_ARM64_REG_X23).longValue() & 0xffffffffL;
+                            long entry = backend.reg_read(unicorn.Arm64Const.UC_ARM64_REG_X10).longValue();
+                            if (cmd < 10000 || cmd > 40000) {
+                                return;
+                            }
+                            long handler = 0;
+                            try {
+                                handler = emulator.getMemory().pointer(entry).getLong(0);
+                            } catch (Throwable ignored) {
+                            }
+                            System.out.println("[TBL] cmd=" + cmd + " entry=0x" + Long.toHexString(entry)
+                                    + " handler=0x" + Long.toHexString(handler)
+                                    + (handler > tm.base && handler < tm.base + 0x200000L
+                                    ? " (libmain+0x" + Long.toHexString(handler - tm.base) + ")" : ""));
+                        } catch (Throwable ignored) {
+                        }
+                    }
+
+                    @Override
+                    public void onAttach(com.github.unidbg.arm.backend.UnHook unHook) {
+                    }
+
+                    @Override
+                    public void detach() {
+                    }
+                }, module.base + 0x3b34cL, module.base + 0x3b350L, null);
+                System.out.println("[RUN] table hook installed at 0x3b34c (entry probe)");
+            } catch (Throwable t) {
+                System.out.println("[RUN] table hook failed: " + t);
+            }
+        }
 
         // 0x11F740 是 libmain 里构造并抛出 SecException 的公共点。
         // addBreakPoint 会抛 InvalidMemoryAccessException，改用 CodeHook 抓 LR。
@@ -289,7 +377,41 @@ public class SGRunner {
     }
 
     /** 宿主 JVM 里的 SG 代码回调进来：把 Java 对象包成 DVM 对象，再进 unidbg。 */
+    private boolean tableHookInstalled = false;
+
+    /** 在第一次 dispatch 时装 hook（构造期装了不触发）。 */
+    private void installEntryHook() {
+        if (tableHookInstalled || mainModule == null) {
+            return;
+        }
+        tableHookInstalled = true;
+        final Module tm = mainModule;
+        try {
+            emulator.getBackend().hook_add_new(new com.github.unidbg.arm.backend.CodeHook() {
+                @Override
+                public void hook(com.github.unidbg.arm.backend.Backend backend, long address, int size, Object user) {
+                    System.out.println("[TBL] hit pc=0x" + Long.toHexString(address - tm.base));
+                }
+
+                @Override
+                public void onAttach(com.github.unidbg.arm.backend.UnHook unHook) {
+                }
+
+                @Override
+                public void detach() {
+                }
+            }, tm.base + 0x3b34cL, tm.base + 0x3b350L, null);
+            System.out.println("[RUN] entry hook installed (lazy)");
+        } catch (Throwable t) {
+            System.out.println("[RUN] entry hook failed: " + t);
+        }
+    }
+
     private Object dispatch(int code, Object[] args) {
+        if (Boolean.getBoolean("sg.tracetable") && code == 10401) {
+            // hook_add_new 在 unicorn2 后端不回调，改用内置 trace 看真实执行路径
+            emulator.traceCode(mainModule.base + 0x3b34cL, mainModule.base + 0x3b4d0L);
+        }
         DvmObject<?>[] params = new DvmObject<?>[args == null ? 0 : args.length];
         for (int i = 0; i < params.length; i++) {
             params[i] = toDvm(args[i]);
