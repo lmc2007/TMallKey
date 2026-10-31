@@ -57,6 +57,7 @@ public class DeviceInfoCapturer {
     }
 
     public static String doCommandForString(int code) {
+        System.out.println("[PROBE] one.doCommandForString(" + code + ")");
         return "";
     }
 }

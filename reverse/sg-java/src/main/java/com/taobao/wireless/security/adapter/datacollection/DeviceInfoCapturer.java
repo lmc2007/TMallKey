@@ -26,6 +26,7 @@ public class DeviceInfoCapturer {
     }
 
     public static String doCommandForString(int i) {
+        System.out.println("[PROBE] datacollection.doCommandForString(" + i + ")");
         if (!f38) {
             synchronized (f39) {
                 if (!f38) {

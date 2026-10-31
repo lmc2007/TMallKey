@@ -388,3 +388,40 @@ mvn -q exec:java -Dexec.mainClass=com.tmall.QuickRun     # 7~15 秒跑完
 - `type=2` ≠ `md5(INPUT)`（md5 = `b6f7cf53e0c71d53ea940785a8ab52e9`）→ SG 用**设备绑定密钥**
   做 HMAC，不是裸哈希。跨环境算不出同值是必然的。
 - 所以 608 的唯一合理解释是：**取密钥失败**（安全图片 / AVMP / SG 数据三者之一没就绪）。
+
+---
+
+## ★★ 2026-10-31 19:35 真机 vs unidbg 的量化差距：wua 197 vs 69
+
+在真机上直接调 `ISecurityBodyComponent.getSecurityBodyDataEx`（frida，appKey 34270422）：
+
+```
+真机  (ts, appkey, "", null, 8, 0)  -> 197 字符
+真机  (null, null, null, null, 8, 0) -> 197 字符
+unidbg(任意组合)                     ->  69 字符（四种组合全部相同）
+```
+
+**197 字符 ≈ 147 字节；69 字符 ≈ 51 字节；差 ≈ 96 字节。**
+
+这**推翻**了本文档上一节「69 字符是正常长度」的结论：
+- unidbg 里五种参数组合都是 69，只说明「参数不影响长度」，不代表 69 是正常值。
+- CSDN 文章「短的 x-mini-wua 无法请求阿里数据」是对的。
+
+### 已排除：设备指纹 Java 层
+
+给两处 `DeviceInfoCapturer.doCommandForString`（`com.taobao.wireless.security.adapter.datacollection`
+与 `com.alibaba.one.android.inner`）都加了探针，跑 20102 时**一次都没有被调用**。
+⇒ 96 字节的差距不是这两个类造成的。
+
+### 下一步的两个候选
+
+1. **native 读 Android property 为空**。`libmain` 会 open `/dev/__properties__`；
+   unidbg 虽然有 `SystemPropertyHook` + `SystemPropertyProvider` 接口，但**全仓库没有任何地方
+   实例化它**（死代码），所以 `__system_property_get` 大概率返回空 → SG 拿不到设备型号/指纹
+   → wua 变短。修法：自己实现一层 `__system_property_get`（虚拟 so 或 patch 模拟 libc），
+   把真机 `getprop` 的值灌进去。
+2. **安全图片 / AVMP 未就绪**，SG 走降级路径。
+
+### 一个可量化的验收标准
+
+**什么时候 unidbg 的 20102 输出变成 197 字符，就说明补齐了。** 这比「能不能签名」更早可测。
