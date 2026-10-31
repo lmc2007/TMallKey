@@ -486,3 +486,27 @@ unidbg(任意组合)                     ->  69 字符（四种组合全部相�
 
 `tools/unidbg-tmall/props.txt`（真机 getprop 导出）、`tools/unidbg-tmall/cert.der`（官方签名证书），
 都已被 unidbg 侧读取（`SGProps` / `Signature.official()`）。
+
+---
+
+## 197 vs 69 的排查记录（截至 19:45，仍未解决）
+
+真机同参数输出 197 字符，unidbg 恒 69 字符。已逐一排除：
+
+| 假设 | 做法 | 结果 |
+|---|---|---|
+| 设备属性为空 | 手动实例化 `SystemPropertyHook` + 真机 `getprop` 3190 条（`tools/unidbg-tmall/props.txt`） | 仍 69 |
+| APK/安全图片 | `-Dsg.apkmap=true` 映射完整 APK | 仍 69 |
+| SG 数据陈旧 | 重新拉取设备 `app_SGLib`（`.c49493b420` 13696→13848） | 仍 69 |
+| umid 缺失 | 真机 `getSecurityToken()` = 32 字符，量级不符 | 排除 |
+| APK 签名证书 | 把 APK 的 `CERT.RSA` 解出的证书 DER 喂给 `PackageManager`（原来是假的两字节） | 仍 69 |
+| 插件 so 未被 SG 自读 | IO 日志显示 SG 从不打开 `/data/app/<pkg>-1/lib/arm64/` | 已确认，但不是原因 |
+
+**未被验证的猜测**：SG 的 wua 按"环境可信度"分档。能拿到完整设备绑定材料（keystore/TEE）
+时输出 147 字节；材料缺失时退化成 51 字节的软档。unidbg 没有 keystore，所以恒定走降级档。
+如果是这样，补文件补属性都补不出来。
+
+### 相关工具
+
+`tools/unidbg-tmall/props.txt`（真机 getprop 导出）、`tools/unidbg-tmall/cert.der`（官方签名证书），
+都已被 unidbg 侧读取（`SGProps` / `Signature.official()`）。
