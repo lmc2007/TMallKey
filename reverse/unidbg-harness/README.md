@@ -212,3 +212,71 @@ python reverse/wua_probe.py --cookies cookies.txt \
 1. **wua 是否被服务端接受** —— 待真实会话验证（阶段 4）。
 2. `10401 signRequest` 一律 `SecException(608)`（所有 requestType），疑与
    `open/initialize/c.java` 的官方 APK 签名白名单有关（宿主 JVM 无 APK 签名）。属附加项，暂不展开。
+
+---
+
+## wua 常驻服务（阶段 5 集成形态）
+
+```bash
+export JAVA_HOME="C:/Program Files/Java/jdk-21"
+export MAVEN_OPTS="--add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED"
+cd reverse/unidbg-harness
+mvn -q exec:java -Dexec.mainClass=com.tmall.WuaServer -Dexec.args="17321"
+
+curl "http://127.0.0.1:17321/healthz"
+curl "http://127.0.0.1:17321/wua?appKey=12574478&flag=8"
+# {"ok":true,"wua":"aQgRjUCxvPj9/...","len":69,"ts":"...","flag":8,"genMs":110}
+```
+
+- 只绑 127.0.0.1，不对外。
+- 初始化一次 ~2.7s；之后每次 110~270ms（对比 CLI 每次要 4s）。
+- 处理线程固定 1 个：native 不是线程安全的。
+
+## 10102 的第二参数 = 插件版本号
+
+`d.java` 里 `String str29 = "libsg" + str + "so-" + str3 + ".so"; str11 = str3;`，
+所以 `10102(name, version, soPath)`。传空串时 body 仍能工作，但 middletier 会校验。
+
+## middletier（x-sign / wua / x-mini-wua / x-umt / x-sgext 的统一入口）
+
+mtop 一次请求要 4 个头，且 **x-sign 为空时整个请求直接失败**（`InnerProtocolParamBuilderImpl`
+236-246 行）。它们全来自 `IUnifiedSecurityComponent.getSecurityFactors()` →
+middletier 的 **70102**。`70101` 是 `init(authCode, flag)`。
+
+已把 middletier 的 Java 层编进 `reverse/sg-java` 并接入 Runner，但：
+
+| 命令 | 结果 |
+|---|---|
+| 70101 init | ❌ `SecException(2403)` |
+| 70102 getSecurityFactors | ❌ `SecException(2403)` |
+| 10401 signRequest | ❌ `SecException(608)`（所有 requestType） |
+
+**2403 的定位**：verbose 显示 middletier 的 handler（libmiddletier 0x4e63c 读参数）执行后，
+异常由 **libmain 0x11f740** 构造（`SecException("", 0x963)`）—— 即 middletier 的 handler
+返回了 null，主模块把它转成 2403。同理 608 也由 0x11f740 抛出。
+
+**已排除**：
+- 不是 `slot` 问题：加 `SGPluginExtras.slot = 0L` 后 middletier 写入 `0x13ec8797`（落在自身段内）
+- 不是 10102 参数问题：版本号传对、返回 0
+- 不是顺序问题：20101 前移、main 也登记，均无效
+- 不是文件缺失：给 Runner 补了 IOResolver（`/data/data/<pkg>` → sgdata，写模式自动建文件），
+  实测 **IO-MISS = 0**，SG 根本没读这些路径
+
+**未排除**：middletier handler 内部的某种前置（AVMP/配置/umid）。属附加项。
+
+## 一个值得记住的 jadx 缺陷
+
+`middletierplugin/d/d/a.java` 的 `invoke` 里，jadx 把 switch 的 `break` 丢了：
+
+```java
+if (hashCode == 165313390 && name.equals("getSecurityFactors")) { sel = 1; }
+sel = 65535;      // ← 无条件覆盖，任何调用都 return null
+```
+
+补成 `else { sel = 65535; }` 后 70101/70102 才真正被调用到。**同类 "invoke + hashCode 分派"
+的 jadx 产物都要检查这个模式**（本工程里还有 C0000/C0001/C0002 等）。
+
+## 主线不受 10401/70102 阻塞的原因
+
+CM 建档只校验 `x-mini-wua`（20102）。`x-sign` 可以用 h5 的 `_m_h5_tk` token 做
+`md5(token&t&appKey&data)`（`fktm/water/mtop.py` 现有链路就是这么算的），不需要 SG。
