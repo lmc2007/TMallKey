@@ -44,14 +44,23 @@ public class SPUtility2 {
         if (!m27(1)) {
             return "";
         }
-        String tempFile = getTempFile(str);
+        String tempFile;
+        try {
+            tempFile = getTempFile(str);
+        } catch (Exception e) {
+            return "";
+        }
         synchronized (SPUtility2.class) {
             try {
                 if (f23.m40()) {
                     str2 = m24(tempFile, true);
                 }
+            } catch (Exception ignored) {
             } finally {
-                f23.m41();
+                try {
+                    f23.m41();
+                } catch (Exception ignored2) {
+                }
             }
         }
         return str2;
@@ -266,8 +275,9 @@ public class SPUtility2 {
             }
             return 4;
         } catch (Exception unused4) {
+            return 6;
         } catch (Throwable th2) {
-            th = th2;
+            return 6;
         }
     }
 

@@ -12,7 +12,7 @@ import android.view.Display;
 import android.view.WindowManager;
 import java.lang.reflect.Method;
 
-@TargetApi(SecurityBodyAdapter.j)
+@TargetApi(19)
 /* loaded from: C:\Users\64702\Desktop\SRC\TMSCHOOL\.tmp\sgdext\body\classes.dex */
 public class SecurityBodyAdapter {
 
@@ -109,8 +109,8 @@ public class SecurityBodyAdapter {
         if (!q) {
             synchronized (p) {
                 if (!q) {
-                    c.a(o);
-                    d.a(o);
+                    com.alibaba.wireless.security.securitybody.c.a(o);
+                    com.alibaba.wireless.security.securitybody.d.a(o);
                     try {
                         w = Class.forName("mtopsdk.mtop.global.SDKUtils");
                         x = w.getMethod("getCorrectionTime", new Class[0]);
@@ -121,13 +121,13 @@ public class SecurityBodyAdapter {
             }
         }
         if (i2 == 0) {
-            return c.a();
+            return com.alibaba.wireless.security.securitybody.c.a();
         }
         if (i2 == 1) {
-            return c.b();
+            return com.alibaba.wireless.security.securitybody.c.b();
         }
         if (i2 == 2) {
-            return d.a();
+            return com.alibaba.wireless.security.securitybody.d.a();
         }
         if (i2 == g) {
             return g();

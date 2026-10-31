@@ -19,4 +19,9 @@ public class UserTrackMethodJniBridge {
     public static int commitUT(String eventId, String label, String page) {
         return 0;
     }
+
+    public static int addUtRecord(String a, int b, int c, String d, long e,
+                                  String f, String g, String h, String i, String j) {
+        return 0;
+    }
 }

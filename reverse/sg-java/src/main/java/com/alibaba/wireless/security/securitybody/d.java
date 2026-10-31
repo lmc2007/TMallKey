@@ -32,7 +32,7 @@ class d {
 
     private static String a(String str) {
         String str2;
-        NetworkInterface byName;
+        NetworkInterface byName = null;
         byte[] hardwareAddress;
         if (str == null || !b()) {
             return null;
@@ -42,7 +42,12 @@ class d {
         } catch (Throwable unused) {
             str2 = null;
         }
-        if (byName != null && (hardwareAddress = byName.getHardwareAddress()) != null && hardwareAddress.length != 0) {
+        try {
+            hardwareAddress = byName == null ? null : byName.getHardwareAddress();
+        } catch (Throwable t) {
+            hardwareAddress = null;
+        }
+        if (byName != null && hardwareAddress != null && hardwareAddress.length != 0) {
             StringBuilder sb = new StringBuilder();
             for (byte b2 : hardwareAddress) {
                 sb.append(String.format("%02x:", Byte.valueOf(b2)));

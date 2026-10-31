@@ -39,7 +39,7 @@ public class InvocationHandlerAdapter implements InvocationHandler {
 
     @Override // java.lang.reflect.InvocationHandler
     public Object invoke(Object obj, Method method, Object[] objArr) {
-        Type genericReturnType;
+        Type genericReturnType = method.getGenericReturnType();
         String name = method.getName();
         method.getDeclaringClass().getName();
         Object obj2 = null;

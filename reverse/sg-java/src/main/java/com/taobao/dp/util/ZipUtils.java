@@ -18,9 +18,10 @@ public class ZipUtils {
                 ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
                 while (true) {
                     int read = zipInputStream.read(bArr3, 0, bArr3.length);
-                    if (read != -1) {
-                        byteArrayOutputStream.write(bArr3, 0, read);
+                    if (read == -1) {
+                        break;
                     }
+                    byteArrayOutputStream.write(bArr3, 0, read);
                 }
                 bArr2 = byteArrayOutputStream.toByteArray();
                 byteArrayOutputStream.flush();

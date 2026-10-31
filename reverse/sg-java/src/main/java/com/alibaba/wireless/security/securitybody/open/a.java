@@ -98,7 +98,7 @@ public class a {
         if (f39a == null) {
             synchronized (a.class) {
                 if (f39a == null) {
-                    f39a = f.a(cls, i);
+                    f39a = com.alibaba.wireless.security.securitybody.f.a(cls, i);
                     b = new a(iSecurityGuardPlugin);
                 }
             }

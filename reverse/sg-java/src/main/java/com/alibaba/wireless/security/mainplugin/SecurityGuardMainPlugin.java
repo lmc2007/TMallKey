@@ -105,7 +105,7 @@ public class SecurityGuardMainPlugin implements ISecurityGuardPlugin {
             this.f4 = new C0001();
             C0006.m20(context, this.f4, this);
             try {
-                System.loadLibrary(str);
+                com.tmall.sghook.NativeLibraryLoader.load(str);
                 String str4 = "";
                 if (objArr.length >= 4 && (objArr[0] instanceof Integer) && (objArr[1] instanceof String) && (objArr[2] instanceof String)) {
                     i = ((Integer) objArr[0]).intValue();

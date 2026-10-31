@@ -104,45 +104,6 @@ public class HttpClientUtils {
         throw new UnsupportedOperationException("Method not decompiled: com.alibaba.minilibc.android.HttpClientUtils.downloadFile(java.lang.String, java.lang.String):boolean");
     }
 
-    private static URLConnection getDefaultURLConnection(String str, int i, int i2, String str2) {
-        URLConnection uRLConnection = null;
-        try {
-        } catch (Throwable th) {
-            UserTrackMethodJniBridge.addUtRecord("100168", 1, 0, "", 0L, th.getMessage(), "", "", "", "");
-        }
-        if (!str.startsWith("http")) {
-            return null;
-        }
-        if (Build.VERSION.SDK_INT < 8) {
-            System.setProperty("http.keepAlive", "false");
-        }
-        uRLConnection = new URL(str).openConnection();
-        if (i <= 0) {
-            i = TIMEOUT_DEFAULT;
-        }
-        if (i2 <= 0) {
-            i2 = TIMEOUT_DEFAULT;
-        }
-        if (str.startsWith("https")) {
-            HttpsURLConnection httpsURLConnection = (HttpsURLConnection) uRLConnection;
-            httpsURLConnection.setConnectTimeout(i);
-            httpsURLConnection.setReadTimeout(i2);
-            httpsURLConnection.setRequestMethod(str2);
-        } else {
-            HttpURLConnection httpURLConnection = (HttpURLConnection) uRLConnection;
-            httpURLConnection.setConnectTimeout(i);
-            httpURLConnection.setReadTimeout(i2);
-            httpURLConnection.setRequestMethod(str2);
-        }
-        uRLConnection.setUseCaches(DEBUG);
-        if ("POST".equals(str2)) {
-            uRLConnection.setRequestProperty("Content-Type", "text/plain;charset=UTF-8");
-            uRLConnection.setDoOutput(true);
-        }
-        uRLConnection.setRequestProperty("Accept-Charset", "UTF-8");
-        return uRLConnection;
-    }
-
     private static int getResponseCode(URLConnection uRLConnection) throws IOException {
         return uRLConnection instanceof HttpsURLConnection ? ((HttpsURLConnection) uRLConnection).getResponseCode() : ((HttpURLConnection) uRLConnection).getResponseCode();
     }

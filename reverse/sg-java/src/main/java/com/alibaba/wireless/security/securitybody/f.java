@@ -22,9 +22,6 @@ public class f {
         hashMap.put(ISimulatorDetectComponent.class, new com.alibaba.wireless.security.securitybody.open.d(securityGuardSecurityBodyPlugin));
         hashMap.put(IMalDetect.class, new MalDetect(securityGuardSecurityBodyPlugin));
         hashMap.put(ISecurityBodyComponent.class, new com.alibaba.wireless.security.securitybody.open.b(securityGuardSecurityBodyPlugin));
-        hashMap.put(com.taobao.wireless.security.sdk.securitybody.ISecurityBodyComponent.class, new a.b.a.a.a.a.b(securityGuardSecurityBodyPlugin));
-        hashMap.put(IRootDetectComponent.class, new a.b.a.a.a.a.a(securityGuardSecurityBodyPlugin));
-        hashMap.put(com.taobao.wireless.security.sdk.simulatordetect.ISimulatorDetectComponent.class, new a.b.a.a.a.a.c(securityGuardSecurityBodyPlugin));
         try {
             Class<?> cls = Class.forName("com.alibaba.wireless.security.open.securitybodysdk.ISecurityBodyPageTrack");
             if (cls != null) {

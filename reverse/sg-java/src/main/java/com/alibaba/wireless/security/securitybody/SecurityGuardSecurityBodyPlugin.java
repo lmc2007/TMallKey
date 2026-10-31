@@ -30,7 +30,7 @@ public class SecurityGuardSecurityBodyPlugin implements ISecurityGuardPlugin {
         @Override // java.lang.Runnable
         public void run() {
             try {
-                e.a(SecurityGuardSecurityBodyPlugin.this.getRouter());
+                com.alibaba.wireless.security.securitybody.e.a(SecurityGuardSecurityBodyPlugin.this.getRouter());
             } catch (Throwable unused) {
             }
         }
@@ -76,7 +76,7 @@ public class SecurityGuardSecurityBodyPlugin implements ISecurityGuardPlugin {
         }
         a();
         UMIDComponent.a(this);
-        System.loadLibrary(str);
+        com.tmall.sghook.NativeLibraryLoader.load(str);
         if (((objArr.length >= 1 ? ((Integer) objArr[0]).intValue() : 0) & 1) != 0) {
             ((UMIDComponent) this.f29a.get(IUMIDComponent.class)).a();
         }

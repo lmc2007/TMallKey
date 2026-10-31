@@ -59,7 +59,7 @@ public class c {
         if (b == null) {
             synchronized (c.class) {
                 if (b == null) {
-                    b = f.a(cls, j);
+                    b = com.alibaba.wireless.security.securitybody.f.a(cls, j);
                     c = new c();
                     d = iSecurityGuardPlugin;
                 }

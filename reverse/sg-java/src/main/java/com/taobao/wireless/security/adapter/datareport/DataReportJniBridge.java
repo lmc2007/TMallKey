@@ -132,7 +132,7 @@ public class DataReportJniBridge {
             }
             return 0;
         } catch (Exception e2) {
-            e = e2;
+            return 0;
         }
     }
 

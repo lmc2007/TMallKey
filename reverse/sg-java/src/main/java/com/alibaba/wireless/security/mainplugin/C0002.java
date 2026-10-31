@@ -52,7 +52,7 @@ public class C0002 {
     /* renamed from: а, reason: contains not printable characters */
     public void m7(HashMap<Class, Object> hashMap, String str, SecurityGuardMainPlugin securityGuardMainPlugin) {
         char c;
-        Class<ISafeTokenComponent> cls;
+        Class<?> cls;
         Object c0022;
         Object m125;
         switch (str.hashCode()) {

@@ -130,40 +130,6 @@ public class C0009 {
     }
 
     /* renamed from: а, reason: contains not printable characters */
-    private static URLConnection m35(String str, int i, int i2, String str2) {
-        URLConnection uRLConnection = null;
-        if (!str.startsWith("http")) {
-            return null;
-        }
-        if (Build.VERSION.SDK_INT < 8) {
-            System.setProperty("http.keepAlive", "false");
-        }
-        uRLConnection = new URL(str).openConnection();
-        if (i <= 0) {
-            i = HttpClientUtils.TIMEOUT_DEFAULT;
-        }
-        if (i2 <= 0) {
-            i2 = HttpClientUtils.TIMEOUT_DEFAULT;
-        }
-        if (str.startsWith("https")) {
-            HttpsURLConnection httpsURLConnection = (HttpsURLConnection) uRLConnection;
-            httpsURLConnection.setConnectTimeout(i);
-            httpsURLConnection.setReadTimeout(i2);
-            httpsURLConnection.setRequestMethod(str2);
-        } else {
-            HttpURLConnection httpURLConnection = (HttpURLConnection) uRLConnection;
-            httpURLConnection.setConnectTimeout(i);
-            httpURLConnection.setReadTimeout(i2);
-            httpURLConnection.setRequestMethod(str2);
-        }
-        uRLConnection.setUseCaches(false);
-        if ("POST".equals(str2)) {
-            uRLConnection.setRequestProperty("Content-Type", "text/plain;charset=UTF-8");
-            uRLConnection.setDoOutput(true);
-        }
-        uRLConnection.setRequestProperty("Accept-Charset", "UTF-8");
-        return uRLConnection;
-    }
 
     /* renamed from: а, reason: contains not printable characters */
     public static void m36(Context context) {

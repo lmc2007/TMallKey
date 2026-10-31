@@ -42,28 +42,37 @@ android 实现类覆盖（下一步做）。
 - `com/taobao/security/**`（另一套 sdk 命名的 app 侧实现）
 - `framework/utils/{a,b,c,d,e}.java`（app 的上报实现）
 
-## 状态
+## 状态（2026-10-31 16:20）
 
-编译错误 259 → **~90**（2026-10-31 16:20）。剩余：
+✅ **编译通过**，`target/sg-java-0.1.0.jar`（154 个 class）。
 
-- 60 `cannot find symbol`（多为 android 方法/字段 + 少量 SG 内部互引）
-- 10 `int cannot be dereferenced`、8 `non-static variable a`（jadx 反编译产物畸变，逐个手修）
-- 8 `method does not override`（接口与实现签名对不上，多为 `throws` 差异）
+清掉的坑（都是 jadx 产物畸变，不是逻辑问题）：
+- `C0002` 局部变量被推断成 `Class<ISafeTokenComponent>` → 改 `Class<?>`
+- 类字段/方法同名导致「class b not found」（`securitybody/a.java`）→ 字段改名
+- 局部变量遮蔽同名类（`f` / `e` / `c` / `d` 与 String、int 常量冲突）→ 全限定名
+- jadx 的 try/catch 重写残骸（`th = th2;`、`e = e2;`、缺 return）→ 补 catch/return
+- `while(true){ if(read!=-1) write; }` 死循环（`ZipUtils`）→ 补 `break`
+- MAC 采集模板 `(hardwareAddress = byName.getHardwareAddress())` 在 try 外 → 包 try
+- `HttpClientUtils` / `C0009` 的 URL 连接助手是半截反编译 → 删掉（调用方本来就是 stub）
+- `DeviceInfoCapturer` + `com.alibaba.one.sdk.*`（13 个互相引用的 obfuscated 设备指纹类）
+  → 整体换成返回空串的桩，等 wua 出串后再决定是否填真值
+
+另外把插件的 `System.loadLibrary(str)` 换成了 `com.tmall.sghook.NativeLibraryLoader.load(str)`：
+native 已由 unidbg 加载并跑过 JNI_OnLoad，宿主 JVM 再 loadLibrary 只会抛
+`UnsatisfiedLinkError` 把 `onPluginLoaded` 打断。这是本工程唯一对 SG 代码的行为改动。
 
 ## 下一步
 
-1. 把剩余 ~90 个编译错误清掉，`mvn package` 出 jar。
-2. 写 `android-impl`：只实现 SG 真正碰到的少数类（`Context` / `SharedPreferences` /
-   `PackageManager` / `ApplicationInfo` / `Build` / `SystemClock` / `Log`），classpath 排在
-   `android.jar` 之前覆盖 `Stub!`。
-3. harness 切 `ProxyClassFactory`（fallback = 现有 SGJni），由真 Java 驱动：
-   `SecurityGuardMainPlugin.onPluginLoaded` → `SecurityGuardSecurityBodyPlugin.onPluginLoaded`
-   → `getInterface(ISecurityBodyComponent).getSecurityBodyDataEx(..., 8)`。
-4. 验收：`20102` 返回 wua 字符串；再比对真机抓包格式。
+1. `android-impl`：实现 SG 真正会碰到的 android 类（`Context` / `SharedPreferences` /
+   `PackageManager` / `ApplicationInfo` / `Build` / `SystemClock` / `Log` / `TelephonyManager`），
+   classpath 排到 `android.jar` 之前，覆盖里面的 `Stub!`。
+2. harness 切 `ProxyClassFactory`（fallback 保留现有 SGJni），classpath 加 sg-java + android-impl，
+   由真 Java 驱动：`SecurityGuardMainPlugin.onPluginLoaded` →
+   `SecurityGuardSecurityBodyPlugin.onPluginLoaded` → `getSecurityBodyDataEx(..., 8)`。
+3. 验收：`20102` 返回 wua 字符串。
 
 ## 注意
 
-- 这些源码是 jadx 反编译产物（Apache-2.0 的 unidbg 只是工具链，SG 本身是闭源商业 SDK），
-  **只在本机跑、不进产品**，最终只把生成的头拿去用。
+- 这些源码是 jadx 反编译产物，**只在本机跑、不进产品**。
 - `open/initialize/c.java` 里有一份官方签名 SHA-256 白名单（SG 会校验宿主 APK 签名）——
-  宿主 JVM 没有 APK 签名，跑到校验那步要 stub 掉（记着这个坑）。
+  宿主 JVM 没有 APK 签名，跑到校验那步要 stub（记着这个坑）。
