@@ -185,16 +185,27 @@ public class SGRunner {
         System.out.println("[RUN] JNI_OnLoad ok");
 
         // 0x11F740 是 libmain 里构造并抛出 SecException 的公共点。
-        // 在这里打点抓 LR，就能知道 608/2403 到底是哪段代码抛的。
+        // addBreakPoint 会抛 InvalidMemoryAccessException，改用 CodeHook 抓 LR。
         if (Boolean.getBoolean("sg.throwbp")) {
-            emulator.attach().addBreakPoint(module, 0x11f740L,
-                    (emu, address) -> {
-                        long lr = emu.getContext().getLR();
-                        System.out.println("[BP-THROW] LR=0x" + Long.toHexString(lr)
-                                + " off=0x" + Long.toHexString(lr - module.base));
-                        return true;
-                    });
-            System.out.println("[RUN] throw breakpoint installed at 0x11f740");
+            final Module m = module;
+            emulator.getBackend().hook_add_new(new com.github.unidbg.arm.backend.CodeHook() {
+                @Override
+                public void hook(com.github.unidbg.arm.backend.Backend backend, long address, int size, Object user) {
+                    long lr = emulator.getContext().getLR();
+                    System.out.println("[HOOK-THROW] pc=0x" + Long.toHexString(address - m.base)
+                            + " LR=0x" + Long.toHexString(lr)
+                            + " (off 0x" + Long.toHexString(lr - m.base) + ")");
+                }
+
+                @Override
+                public void onAttach(com.github.unidbg.arm.backend.UnHook unHook) {
+                }
+
+                @Override
+                public void detach() {
+                }
+            }, module.base + 0x11f740L, module.base + 0x11f744L, null);
+            System.out.println("[RUN] throw codehook installed at 0x11f740");
         }
 
         // 必须用 Application：SG 里多处判断 context instanceof Application
