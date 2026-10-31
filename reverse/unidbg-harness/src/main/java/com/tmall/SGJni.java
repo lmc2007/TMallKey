@@ -451,6 +451,7 @@ public class SGJni extends AbstractJni {
     public long getStaticLongField(BaseVM vm, DvmClass dvmClass, String signature) {
         Long v = staticLongFields.get(signature);
         if (v != null) {
+            System.out.println("[JNI-GET] getStaticLongField " + signature + " = 0x" + Long.toHexString(v));
             return v;
         }
         miss("getStaticLongField", signature, 0L);

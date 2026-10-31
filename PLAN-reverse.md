@@ -118,8 +118,30 @@ README 里有完整事实表、命令码、JNI 桩坑与 bootstrap 步骤。
       - 卡点：decompiled dex 里**找不到 `onPluginLoaded` 的任何调用点**（classes8 框架类
         有 27 个 jadx 反编译失败，`d.java` 1295 行多 JADX WARN），这段大概率丢了。
 
-      下一步：① 用 `--show-bad-code`/baksmali 补全 `d.java`，找到「router 交给 native」那步照做；
-      或 ② 在 IDA 里看 2xxxx handler 从哪张全局表取函数指针、谁往里写。
+      **✅ 已解决（16:50）**：漏了命令 **10102 = 插件登记**。
+      `jadx --show-bad-code` 补全 `framework/d.java` 后拿到真相（第 820-857 行）：
+
+      ```java
+      } else {
+          SGPluginExtras.slot = 0L;                     // 加载后续插件前先清零
+          plugin.onPluginLoaded(context, this.f, info, name, flags);  // 插件内 loadLibrary
+      }
+      ...
+      r.doCommand(10102, {插件名, str11, so 绝对路径});   // ← 登记，插表就在这里
+      ```
+
+      body so 的 JNI_OnLoad 只负责把分发函数指针写进 `SGPluginExtras.slot`，
+      **真正把 2xxxx 插进主模块分发表的是随后的 10102**。我们跳过了它，所以表永远空。
+
+      补上后（SGRunner）：
+
+      ```
+      [RUN] native doCommand(10102) -> 0   slot=13284f0b
+      [RUN] native doCommand(20101) -> true
+      [RUN] native doCommand(20102) -> aPQRPTQAe+Gbgjssq2y7bK9ouhkbSrSXi06nY7sf7vQ//...
+      ```
+
+      `flag=8` 得到 51 字节原始数据（base64 69 字符）；`flag=4` / `flag=1` 报 1412（待查）。
 
 - [ ] 阶段 4 · 一致性验证（unidbg 产物 vs 真机抓包；CM❌ 会话 + 自产 wua 建档）
 - [ ] 阶段 5 · fkTM 集成（wua 生成器落地方式届时定）

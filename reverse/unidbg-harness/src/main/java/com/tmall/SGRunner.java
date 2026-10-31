@@ -106,6 +106,20 @@ public class SGRunner {
         });
     }
 
+    private static String md5Hex(String s) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("MD5");
+            byte[] d = md.digest(s.getBytes("UTF-8"));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : d) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
     /** 插件名 → 提取出来的 so 文件名。 */
     private static String soFileOf(String name) {
         String n = name == null ? "" : name;
@@ -200,6 +214,14 @@ public class SGRunner {
         try {
             bodyPlugin.onPluginLoaded(context, router, bodyInfo, "sgsecuritybody", 0);
             System.out.println("[RUN] body plugin loaded");
+
+            // 框架在插件 onPluginLoaded 之后会调 10102 把插件登记进 native（d.java:855）。
+            // 不调这一步，主模块的 2xxxx 分发表永远是空的 → 9904。
+            // 参数照 d.java: objArr = {插件名, str11, so 绝对路径}
+            String bodySo = new java.io.File(LIB_DIR, "libsgsecuritybodyso-6.5.104.so").getAbsolutePath();
+            Object reg = router.doCommand(10102, "sgsecuritybody", "", bodySo);
+            System.out.println("[RUN] register plugin(10102) -> " + SGHarness.describe(reg)
+                    + "   slot=" + Long.toHexString(com.alibaba.wireless.security.framework.SGPluginExtras.slot));
         } catch (Throwable t) {
             System.out.println("[RUN] body plugin FAILED: " + t);
             t.printStackTrace();
@@ -210,6 +232,41 @@ public class SGRunner {
         Object init = router.doCommand(20101, "12574478", PKG);
         System.out.println("[RUN] initSecurityBody(20101) -> " + SGHarness.describe(init));
 
+        // ---- 离线自证：signRequest(10401) 的输入是 mtopsdk 拼好的 INPUT 串 ----
+        // mtopsdk 的 getMtopApiSign: requestType=7, paramMap={"INPUT": 21 段 & 拼接}
+        try {
+            com.alibaba.wireless.security.open.securesignature.ISecureSignatureComponent sig =
+                    mainPlugin.getInterface(
+                            com.alibaba.wireless.security.open.securesignature.ISecureSignatureComponent.class);
+            String input = "hello&world&12574478";
+            // requestType=7 的真实输入是 21 段 & 拼接（见 mtopsdk convertInnerBaseStrMap）
+            StringBuilder big = new StringBuilder();
+            for (int i = 0; i < 21; i++) {
+                if (i > 0) big.append('&');
+                big.append(i == 3 ? "12574478" : (i == 4 ? md5Hex("{}") : "x"));
+            }
+            String input21 = big.toString();
+            System.out.println("[SIGN] input21 = " + input21);
+            for (int rt : new int[]{2, 7, 9, 3, 10}) {
+                com.alibaba.wireless.security.open.SecurityGuardParamContext ctx =
+                        new com.alibaba.wireless.security.open.SecurityGuardParamContext();
+                ctx.appKey = "12574478";
+                ctx.requestType = rt;
+                ctx.paramMap.put("INPUT", rt == 7 ? input21 : input);
+                try {
+                    String sg = sig.signRequest(ctx, "");
+                    String md5 = md5Hex(rt == 7 ? input21 : input);
+                    System.out.println("[SIGN] rt=" + rt + " -> " + sg
+                            + "   md5(INPUT)=" + md5
+                            + (md5.equalsIgnoreCase(String.valueOf(sg)) ? "   ★一致" : ""));
+                } catch (Throwable t) {
+                    System.out.println("[SIGN] rt=" + rt + " 异常: " + t);
+                }
+            }
+        } catch (Throwable t) {
+            System.out.println("[SIGN] 组件获取失败: " + t);
+        }
+
         ISecurityBodyComponent body = bodyPlugin.getInterface(ISecurityBodyComponent.class);
         System.out.println("[RUN] ISecurityBodyComponent = " + body);
         if (body == null) {
@@ -217,6 +274,15 @@ public class SGRunner {
         }
 
         String ts = String.valueOf(System.currentTimeMillis());
+        // 同一参数连打 3 次：判断是活计算还是缓存/降级
+        for (int k = 0; k < 3; k++) {
+            try {
+                String w = body.getSecurityBodyDataEx(ts, "12574478", "", null, 8, 0);
+                System.out.println("[WUA] rep" + k + " -> " + (w == null ? "null" : w.length() + " chars: " + w));
+            } catch (Throwable t) {
+                System.out.println("[WUA] rep" + k + " 异常: " + t);
+            }
+        }
         for (int flag : new int[]{8, 4, 1}) {
             try {
                 String wua = body.getSecurityBodyDataEx(ts, "12574478", "", null, flag, 0);
