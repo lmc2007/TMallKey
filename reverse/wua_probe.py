@@ -80,6 +80,8 @@ def call_mtop(api: str, data: dict, cookies: dict, extra_headers: dict,
     query = urllib.parse.urlencode({
         "jsv": "2.7.2",
         "appKey": APP_KEY,
+        "utdid": os.environ.get("SG_UTDID", "apU98phzUu4DAOxRSTtO69oT"),
+        "ttid": os.environ.get("SG_TTID", "600000@taobao_android_5.0.0"),
         "t": ts,
         "sign": sign(token, ts, APP_KEY, payload),
         "api": api,
@@ -90,8 +92,14 @@ def call_mtop(api: str, data: dict, cookies: dict, extra_headers: dict,
     })
     url = GATEWAY.format(api=api, ver=ver) + "?" + query
     headers = {
-        "User-Agent": "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 "
-                      "(KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+        # 按 Kaltsit 项目：必须装成 App 形态，否则直接进风控
+        "User-Agent": os.environ.get("SG_UA", "MTOPSDK/3.1.1.7 (Android;16;OnePlus;PKR110)"),
+        "x-appkey": APP_KEY,
+        "x-pv": "6.2",
+        "x-bx-version": "6.5.90",
+        "x-app-ver": "5.0.0",
+        "x-ttid": os.environ.get("SG_TTID", "600000@taobao_android_5.0.0"),
+        "x-platform": "android",
         "Referer": "https://share.confong.cn/",
         "Accept": "application/json",
         "Cookie": "; ".join(f"{k}={v}" for k, v in cookies.items()),
@@ -133,6 +141,8 @@ def main() -> int:
     ap.add_argument("--flag", type=int, default=8)
     ap.add_argument("--gen-only", action="store_true", help="只生成 wua，不发请求")
     ap.add_argument("--compare", action="store_true", help="同一请求分别带 / 不带 x-mini-wua")
+    ap.add_argument("--data", default="{}", help="请求 data（JSON 字符串）")
+    ap.add_argument("--ver", default="1.0")
     args = ap.parse_args()
 
     print("[1/2] 生成 wua ...")
@@ -151,7 +161,7 @@ def main() -> int:
 
     # h5 流程：先打一次拿 _m_h5_tk（首次通常 FAIL_SYS_TOKEN_EMPTY），再带 token 重签
     for attempt in range(3):
-        st, bd = call_mtop(args.api, {}, cookies, {})
+        st, bd = call_mtop(args.api, json.loads(args.data), cookies, {}, ver=args.ver)
         got_new = absorb_h5_tokens(cookies, bd.get("__set_cookie"))
         print(f"      取 token #{attempt + 1}: ret={bd.get('ret')} 新token={got_new}")
         if not got_new or "_m_h5_tk" in cookies and not str(bd.get("ret", [""])[0]).startswith("FAIL_SYS_TOKEN"):
@@ -167,11 +177,18 @@ def main() -> int:
         base_hdr["x-sid"] = os.environ["SG_SID"]
     if os.environ.get("SG_CAMPUS_ID"):
         base_hdr["x-campus-id"] = os.environ["SG_CAMPUS_ID"]
-    variants = [("带 wua", dict(base_hdr, **{"x-mini-wua": wua}))]
+    if os.environ.get("SG_UMT"):
+        base_hdr["x-umt"] = os.environ["SG_UMT"]
+    if os.environ.get("SG_SGEXT"):
+        base_hdr["x-sgext"] = os.environ["SG_SGEXT"]
+    variants = [
+        ("正常 wua", dict(base_hdr, **{"x-mini-wua": wua})),
+        ("乱码 wua", dict(base_hdr, **{"x-mini-wua": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})),
+    ]
     if args.compare or not cookies:
         variants.append(("不带 wua", base_hdr))
     for label, hdr in variants:
-        status, body = call_mtop(args.api, {}, cookies, hdr)
+        status, body = call_mtop(args.api, json.loads(args.data), cookies, hdr, ver=args.ver)
         print(f"  [{label}] http={status} ret={body.get('ret')} api={body.get('api')}")
         if body.get("data"):
             print(f"           data={json.dumps(body['data'], ensure_ascii=False)[:300]}")
