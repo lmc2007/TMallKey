@@ -1,0 +1,17 @@
+diff --git a/unidbg-android/src/main/java/com/github/unidbg/linux/ARM64SyscallHandler.java b/unidbg-android/src/main/java/com/github/unidbg/linux/ARM64SyscallHandler.java
+index 001038d..122127c 100644
+--- a/unidbg-android/src/main/java/com/github/unidbg/linux/ARM64SyscallHandler.java
++++ b/unidbg-android/src/main/java/com/github/unidbg/linux/ARM64SyscallHandler.java
+@@ -1403,6 +1403,12 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
+         Pointer pathname = context.getPointerArg(1);
+         Pointer statbuf = context.getPointerArg(2);
+         int flags = context.getIntArg(3);
++        if (pathname == null) {
++            // fstatat(dirfd, NULL, ...) 是合法的 AT_EMPTY_PATH 探测；unidbg 没有 fd->path 映射，
++            // 原实现直接 pathname.getString(0) 会 NPE 打断整个模拟。这里降级成 ENOENT。
++            emulator.getMemory().setErrno(UnixEmulator.ENOENT);
++            return -1;
++        }
+         String path = FilenameUtils.normalize(pathname.getString(0), true);
+         if (log.isDebugEnabled()) {
+             log.debug("fstatat64 dirfd={}, pathname={}, statbuf={}, flags={}", dirfd, path, statbuf, flags);

@@ -10,13 +10,13 @@
 
 ### 已完全逆向 ✅
 
-| 目标            | 产物                                                                        | 状态              |
-| ------------- | ------------------------------------------------------------------------- | --------------- |
-| VOC 门锁 BLE 协议 | 0D/13/0B 握手、AES-128/ECB、静态 activationKey                                  | 离线开锁，产品核心，长期稳定  |
+| 目标            | 产物                                                                        | 状态                 |
+| ------------- | ------------------------------------------------------------------------- | ------------------ |
+| VOC 门锁 BLE 协议 | 0D/13/0B 握手、AES-128/ECB、静态 activationKey                                  | 离线开锁，产品核心，长期稳定     |
 | MV 锁（掌门神通）开锁链 | `guide.zmst.unlock.data.get {macId}` → `encryptData` → BLE AFF0/AFF1/AFF2 | **端到端已验证可用**（用户确认） |
-| CM 会话机制       | cookie2 = CM 身份钥匙；激活 = native mtop sync（打开校园页面触发）；补丁版会话永不激活（签名）           | 已实验闭环           |
-| MV 锁检测        | logcat `FastBle: mac: XX:XX…`（连接事件，设备名 MVL 前缀）                            | root 抓取双协议监听已实现 |
-| 免 root 登录态同步  | LSPatch 模块 + 本地 Socket（127.0.0.1:42741）                                   | VOC 钥匙抓取可用      |
+| CM 会话机制       | cookie2 = CM 身份钥匙；激活 = native mtop sync（打开校园页面触发）；补丁版会话永不激活（签名）           | 已实验闭环              |
+| MV 锁检测        | logcat `FastBle: mac: XX:XX…`（连接事件，设备名 MVL 前缀）                            | root 抓取双协议监听已实现    |
+| 免 root 登录态同步  | LSPatch 模块 + 本地 Socket（127.0.0.1:42741）                                   | VOC 钥匙抓取可用         |
 
 ### 已封死（勿再踩）⛔
 
@@ -43,9 +43,11 @@
 | ------------------ | --------------------- | ----------------- |
 | `encryptData` 重放测试 | 旧帧重放给锁能否开（判断锁端是否验新鲜度） | 需真锁在场，纯研究性质，不影响产品 |
 
-> **关于天猫校园版本**：官方实际最新版已 7.0+，但 **5.0 仍完全可用** —— 服务端对旧版本没有
-> 强制升级门槛。因此不存在「新版本逼着重逆向」的压力，版本监控项取消；仅当用户实测发现
+> **关于天猫校园版本**：官方实际最新版已 7.0+，但 **5.0 仍完全可用** —— 服务端对旧版本没有  
+> 强制升级门槛。因此不存在「新版本逼着重逆向」的压力，版本监控项取消；仅当用户实测发现  
 > 5.0 某功能失效时再被动处理。
+
+
 
 ---
 
@@ -63,43 +65,60 @@
 
 **触发下一项的条件**：MV 用户群扩大（>1 人）或用户反馈集中。
 
-### P1 · native 登录逆向（unidbg 路线）—— 备案，未立项
+### P1 · native 登录逆向（unidbg 路线）—— **已立项，进行中（2026-10-31）**
 
 **目标**：自产合法 `x-mini-wua`，使 CM 建档对任意会话生效 → 免 root 全功能。
 
 **技术路线**：unidbg 模拟执行官方 SO（不逆算法，直接调）。
+工程与复现脚本：`reverse/unidbg-harness/`（源码入库；SO 与资产在 `tools/unidbg-tmall/`）。
+README 里有完整事实表、命令码、JNI 桩坑与 bootstrap 步骤。
 
-```
-阶段 1  资产提取
-        从官方 APK 提取 libsgmainso 及依赖 SO + 初始化参数（appKey 12574478 /
-        官方签名 / 设备指纹模板）
-阶段 2  unidbg harness
-        补 JNI 环境、/proc 反调试绕过、syscall 桩；目标 = 给定输入吐 wua
-阶段 3  一致性验证
-        同参数下 unidbg 产物 vs 真机抓包产物逐字节对比；服务端接受性验证
-        （拿 CM ❌ 会话 + unidbg wua 调建档接口，看是否变 ✅）
-阶段 4  fkTM 集成
-        wua 生成器封装为本地服务/依赖；登录建档 + zmst/接水全部切 native 头
-阶段 5  维护策略
-        每次校园 App / 安全 SDK 更新 → 重新提取 SO → 回归测试
-```
+- [x] **阶段 1 · 资产提取**（2026-10-30）
+      `libsgmainso-6.5.97` / `libsgmiddletierso-6.5.90` / `libsgsecuritybodyso-6.5.104` /
+      `libsgcore` + `yw_1222.jpg`。
+      **关键补充（10-31）**：`libsgmain.so`、`libsgmiddletier.so`、`libsgsecuritybody.so`
+      **不是 ELF，是 zip 包（内含 classes.dex）** —— SecurityGuard 的 Java 层就在这里，
+      命令码 10101/10401/20102 全部从中反编译得到，不是猜的。
+
+- [x] **阶段 2 · unidbg harness**（2026-10-31）
+      `libsgmainso` 加载成功（arm64，SONAME=`libmain.so`）、`JNI_OnLoad` 通过、
+      `doCommandNative` 可调、`initialize(10101)` **返回 0（初始化成功）**。
+      三个插件 so（core/middletier/body）也能加载并完成 JNI_OnLoad。
+      踩过的坑：ProxyClassFactory 的反射路径会吞掉 JNI 回调（改纯 DvmClass）；
+      unidbg 不接受裸 `Object[]`（要 `ArrayObject`）；`SGPluginExtras.slot` 必须真存；
+      `fstatat(dirfd, NULL)` 让 unidbg NPE（已打补丁，见 `patches/`）。
+
+- [ ] **阶段 3 · wua 产出** —— 🔴 **当前阻塞**
+      `doCommand(20102, {ts, appKey, 8, authCode, ext, env})` 返回 `201029904`
+      （= cmd×10000 + 9904），`20101 initSecurityBody` 同样 9904。
+      证据：IDA 在 `libsgmainso` 0x38F68 处找到 `MOV W9,#0x26B0; ADD W8,W8,W9`，
+      即错误码由主模块拼出 = 主模块分发表里没有 2xxxx 处理器。
+      根因：securitybody 的命令要靠 Java 侧 `SGPluginManager → onPluginLoaded()` 注册，
+      而 **unidbg 的 DVM 不执行 dex 字节码**（只做签名/反射桥），那段 Java 永远跑不到。
+      三条出路（按成本排）：① 直接调 `SGPluginExtras.slot` 指向的 body 分发函数（IDA 定签名）；
+      ② 宿主 JVM 跑真 Java 层；③ 改走 middletier 的 `getUnifiedSign`（15xxx）。
+
+- [ ] 阶段 4 · 一致性验证（unidbg 产物 vs 真机抓包；CM❌ 会话 + 自产 wua 建档）
+- [ ] 阶段 5 · fkTM 集成（wua 生成器落地方式届时定）
+- [ ] 阶段 6 · 维护策略（App/SDK 更新 → 重提 SO → 回归）
+
+**已确认的旁证（10-31）**：`x-mini-wua` 由 mtop 的
+`InnerProtocolParamBuilderImpl` → `getSecBodyDataEx(timestamp, appKey, authCode, ext, 8)` 产出；
+`x-sgext` 来自 middletier 的 `getUnifiedSign`（两条独立链路，都要）。
 
 | 维度         | 评估                                    |
 | ---------- | ------------------------------------- |
-| 工程量        | 熟手 1~~4 周；我们从零踩坑预计 2~~6 周             |
-| 技术风险       | 中（社区有 mtop sign 的 unidbg 先例可参考）       |
+| 工程量        | 阶段 1~2 已用 1 天；阶段 3 取决于走哪条出路（① 最快）      |
+| 技术风险       | 中高（unidbg 不执行 dex 是硬约束，必须绕插件注册）        |
 | 维护成本       | 高（每次更新重适配）                            |
 | 收益         | 免 root 全功能；摆脱补丁版依赖                    |
-| **立项触发条件** | **出现「免 root 且强需求接水/MV」的真实用户**（当前 = 0） |
 
-**立项前不做任何预研**。唯一例外：若未来想提前铺路，可先做阶段 1（纯提取，半天），  
-确认 SO 可被 unidbg 加载即可，不投入后续。
 
 ### P2 · 被动监控（issue 驱动）
 
 - 新锁型 / 新协议 → 先定性（tmxy_check.bat / 双协议抓取是现成工具）
 - 补丁包自动重打已由 CI 覆盖（release.yml Patch 步骤）
-- ~~天猫校园新版本监控~~ —— 已取消：官方最新 7.0+，5.0 仍完全可用，无升级压力；
+- ~~天猫校园新版本监控~~ —— 已取消：官方最新 7.0+，5.0 仍完全可用，无升级压力；  
   仅当用户实测发现 5.0 某功能失效时被动处理
 
 ---
