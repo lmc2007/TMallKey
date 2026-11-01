@@ -258,6 +258,7 @@ public class SGRunner {
         mainModule = module;
         System.out.println("[RUN] loaded " + module.name + " base=0x" + Long.toHexString(module.base));
 
+
         jniLibrary = vm.resolveClass(SGHarness.JNI_CLASS);
         dm.callJNI_OnLoad(emulator);
         System.out.println("[RUN] JNI_OnLoad ok");
@@ -334,7 +335,7 @@ public class SGRunner {
         return null;
     }
 
-    private static String md5Hex(String s) {
+    public static String md5Hex(String s) {
         try {
             java.security.MessageDigest md = java.security.MessageDigest.getInstance("MD5");
             byte[] d = md.digest(s.getBytes("UTF-8"));
@@ -368,6 +369,7 @@ public class SGRunner {
 
     /** 宿主 JVM 里的 SG 代码回调进来：把 Java 对象包成 DVM 对象，再进 unidbg。 */
     private boolean tableHookInstalled = false;
+    private boolean traceLazyInstalled = false;
 
     /** 在第一次 dispatch 时装 hook（构造期装了不触发）。 */
     private void installEntryHook() {
@@ -402,26 +404,49 @@ public class SGRunner {
         return dispatch(code, args);
     }
 
+    /** 不打印的探针：错误码留在 SecException.lastErrorCode 里给调用方自己读。 */
+    public Object probeQuiet(int code, Object... args) {
+        return dispatch(code, args, true);
+    }
+
     private Object dispatch(int code, Object[] args) {
+        return dispatch(code, args, false);
+    }
+
+    private Object dispatch(int code, Object[] args, boolean quiet) {
         if (Boolean.getBoolean("sg.tracetable")) {
             installEntryHook();
+        }
+        if (!traceLazyInstalled) {
+            traceLazyInstalled = true;
+            SGTrace.installOnAll(emulator, "libmain.so", System.getProperty("sg.trace"));
         }
         DvmObject<?>[] params = new DvmObject<?>[args == null ? 0 : args.length];
         for (int i = 0; i < params.length; i++) {
             params[i] = toDvm(args[i]);
         }
         long t0 = System.currentTimeMillis();
+        // 关键：进 native 之前把 lastErrorCode 清零，否则上一次调用残留的错误码会被误算到本次头上
+        int preErr = com.alibaba.wireless.security.open.SecException.lastErrorCode;
+        com.alibaba.wireless.security.open.SecException.lastErrorCode = 0;
         Object ret = jniLibrary.callStaticJniMethodObject(emulator, SGHarness.DO_COMMAND_SIG,
                 code, new ArrayObject(params));
         String err = "";
+        if (preErr != 0) {
+            err = "   [进入前残留 err=" + preErr + "]";
+        }
         int errCode = com.alibaba.wireless.security.open.SecException.lastErrorCode;
         if (errCode != 0 && ret == null) {
             err = "   [native 抛出 SecException(" + errCode + ") "
                     + com.alibaba.wireless.security.open.SecException.lastMessage + "]";
-            com.alibaba.wireless.security.open.SecException.lastErrorCode = 0;
+            if (!quiet) {
+                com.alibaba.wireless.security.open.SecException.lastErrorCode = 0;
+            }
         }
-        System.out.println("[RUN] native doCommand(" + code + ") -> " + SGHarness.describe(ret)
-                + "  " + (System.currentTimeMillis() - t0) + "ms" + err);
+        if (!quiet) {
+            System.out.println("[RUN] native doCommand(" + code + ") -> " + SGHarness.describe(ret)
+                    + "  " + (System.currentTimeMillis() - t0) + "ms" + err);
+        }
         return unwrap(ret);
     }
 
@@ -627,7 +652,9 @@ public class SGRunner {
                         api, "pageId=&pageName=", null, null, null);
                 System.out.println("[M70102] useWua=" + uw + " -> " + SGHarness.describe(r));
                 if (r instanceof java.util.Map) {
-                    for (Object e : ((java.util.Map<?, ?>) r).entrySet()) {
+                    // 先快照：native 返回的 Map 是 DVM 代理，直接迭代会在并发修改时抛 CME
+                    java.util.Map<?, ?> snap = new java.util.LinkedHashMap<>((java.util.Map<?, ?>) r);
+                    for (Object e : snap.entrySet()) {
                         java.util.Map.Entry<?, ?> en = (java.util.Map.Entry<?, ?>) e;
                         String v = String.valueOf(en.getValue());
                         System.out.println("[M70102]   " + en.getKey() + " (" + v.length() + ") = "

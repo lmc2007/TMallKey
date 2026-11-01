@@ -15,6 +15,14 @@ public class SecException extends Exception {
     private static void remember(int code, String msg) {
         lastErrorCode = code;
         lastMessage = msg;
+        if (Boolean.getBoolean("sg.exctrace")) {
+            StackTraceElement[] st = new Throwable().getStackTrace();
+            StringBuilder sb = new StringBuilder("[EXC] code=" + code + " msg=" + msg);
+            for (int i = 1; i < st.length && i < 8; i++) {
+                sb.append(" <- ").append(st[i].getClassName()).append(".").append(st[i].getMethodName());
+            }
+            System.out.println(sb);
+        }
     }
 
     public SecException(int i) {

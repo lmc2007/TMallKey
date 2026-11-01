@@ -11,6 +11,11 @@ public class QuickRun {
             System.out.println("[Q] initPlugins failed");
             Runtime.getRuntime().halt(1);
         }
+        long sleepMs = Long.getLong("sg.sleep", 0L);
+        if (sleepMs > 0) {
+            System.out.println("[Q] 等待 SG 异步初始化 " + sleepMs + "ms");
+            Thread.sleep(sleepMs);
+        }
         String ts = String.valueOf(System.currentTimeMillis());
         java.util.HashMap<String, String> ext = new java.util.HashMap<>();
         ext.put("api", "mtop.common.gettimestamp");
@@ -26,7 +31,7 @@ public class QuickRun {
         // 4) ts/appKey + ext
         probe(body, "ts+appKey+ext", ts, "12574478", "", ext);
         // 模块 6 = AVMP。看这些命令有没有 handler（9904 = 没注册）
-        int[] cmds = {60101, 60102, 60201, 60202, 60206, 60401, 60402, 70201};
+        int[] cmds = {60101, 70201, 10201, 10301, 10501, 10601, 20102, 30101, 50101};
         for (int c : cmds) {
             try {
                 Object r = runner.probe(c, "mwua", "sgcipher2");

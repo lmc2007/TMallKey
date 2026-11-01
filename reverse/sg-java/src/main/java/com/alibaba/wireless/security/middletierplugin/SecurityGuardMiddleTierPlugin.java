@@ -22,9 +22,13 @@ public class SecurityGuardMiddleTierPlugin implements ISecurityGuardPlugin {
 
         @Override // java.lang.Runnable
         public void run() {
+            System.out.println("[MT] run() 进入");
             try {
-                // c.a.* 是 FC/ES 风控的延迟初始化（WebView cookie 嗅探），与 getSecurityFactors 无关，已裁剪
+                com.alibaba.wireless.security.middletierplugin.c.a.b.a(SecurityGuardMiddleTierPlugin.this);
+                com.alibaba.wireless.security.middletierplugin.c.a.a.a(SecurityGuardMiddleTierPlugin.this,
+                        SecurityGuardMiddleTierPlugin.this.b);
             } catch (Throwable unused) {
+                System.out.println("[MT] 异步初始化异常: " + unused);
             }
         }
     }
@@ -61,7 +65,9 @@ public class SecurityGuardMiddleTierPlugin implements ISecurityGuardPlugin {
         com.alibaba.wireless.security.middletierplugin.a.a();
         new b().a(this.a, this, context);
         com.tmall.sghook.NativeLibraryLoader.load(str);
+        System.out.println("[MT] 提交异步初始化任务");
         Executors.newFixedThreadPool(1).execute(new a());
+        System.out.println("[MT] 已提交");
         return iRouterComponent;
     }
 }

@@ -8,7 +8,8 @@ public class UserTrackMethodJniBridge {
 
     /** native 初始化时会查这个方法：UT 是否可用。0 = 不可用（不上报）。 */
     public static int utAvaiable() {
-        return 0;
+        // 必须返回 1：middletier 的 70101 会先问 UT 是否可用，返回 0 就直接抛 SecException(2405)
+        return 1;
     }
 
     public static int commitUT(String eventId, String label, String page, String arg1, String arg2,

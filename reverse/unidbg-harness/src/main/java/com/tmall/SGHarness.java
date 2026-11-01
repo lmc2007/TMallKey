@@ -100,6 +100,8 @@ public class SGHarness {
         dm.callJNI_OnLoad(emulator);
         log("JNI_OnLoad executed");
 
+        SGTrace.install(emulator, module, System.getProperty("sg.trace"));
+
     }
 
     /** 插件模块加载：真机上是 initialize 之后由框架逐个 loadLibrary + onPluginLoaded。 */
