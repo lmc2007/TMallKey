@@ -71,6 +71,14 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+        jniLibs {
+            // SG 的插件是 zip 包（libsgmain.so 里装的是 classes.dex），必须**解压落盘**，
+            // 因为 SecurityGuard 用 File 去读 nativeLibraryDir 下的这些文件。
+            // 不解压的话 Android 6+ 默认直接从 APK 里 load，目录里根本没有文件。
+            useLegacyPackaging = true
+            // 别让 AGP 去 strip 它们：libsgmain.so 根本不是 ELF，strip 会把它弄坏
+            keepDebugSymbols += "**/*.so"
+        }
     }
 }
 

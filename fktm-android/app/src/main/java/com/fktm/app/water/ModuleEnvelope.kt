@@ -25,6 +25,14 @@ data class ModuleEnvelope(
     val cookies: Map<String, String>,
     val doorlocks: List<DoorLock>,
     val mvLocks: List<MvLock>,
+    /**
+     * 真机 mtop 请求里的安全头（`x-sgext` / `x-mini-wua` / `x-sign` …）。
+     *
+     * App 网关的 `smsSend` 只差 `x-sgext`，而它是 SecurityGuard 的 middletier
+     * 用设备密钥现算的，PC 侧复刻不出来 —— 只能从天猫校园自己的请求里抓一次。
+     * 这些值有时效（分钟级到小时级），所以每次 pull 都整份覆盖。
+     */
+    val security: Map<String, String> = emptyMap(),
 ) {
 
     /** 一把 VOC 锁：`activationKey` 是静态钥匙，拿到即可永久离线开锁。 */
@@ -65,7 +73,15 @@ data class ModuleEnvelope(
                 MvLock(mac, o.optString("syncData").trim())
             }
 
-            return ModuleEnvelope(cookies, doorlocks, mvLocks)
+            val security = LinkedHashMap<String, String>()
+            obj.optJSONObject("security")?.let { o ->
+                o.keys().forEach { k ->
+                    val v = runCatching { o.optString(k) }.getOrNull().orEmpty()
+                    if (k.isNotBlank() && v.isNotBlank()) security[k.lowercase()] = v
+                }
+            }
+
+            return ModuleEnvelope(cookies, doorlocks, mvLocks, security)
         }
 
         /**

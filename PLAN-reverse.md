@@ -248,6 +248,133 @@ README 里有完整事实表、命令码、JNI 桩坑与 bootstrap 步骤。
         所以免 root 的首次动作是「开门锁页 + 点一次开锁」，之后完全脱离天猫校园。
       - 回归：单测 89/89；设备 `providerLocks | voc=1 mv=0` + `syncPull doorlocks=1`，
         UI 列表出现「门锁 02:97 / 钥匙 160d…99ca」；PC `zmst.unlock.data.get` → SUCCESS。
+- [x] 阶段 4.8 · smsSend 协议层破译（2026-11-01 14:50）—— **协议通，卡风控**
+      产物：`reverse/sms_app_probe.py`（可复跑）。全部结论都是实测，不是推断。
+
+      **① `/gw` 会逐个点名缺哪个协议头** —— 这是一条免费的枚举通道：
+
+      ```
+      无头            → FAIL_SYS_PROTOVER_MISSED::缺少协议版本m-pv
+      +m-pv           → FAIL_SYS_PROTOPARAM_MISSED::缺少协议参数m-appkey
+      +m-appkey       → ...m-sign
+      +m-sign         → ...m-t
+      +m-t(毫秒)      → FAIL_SYS_REQUEST_EXPIRED::请求失效
+      +m-t(秒)        → FAIL_SYS_ILEGEL_SIGN::非法请求签名
+      ```
+
+      即老协议骨架 = `m-pv / m-appkey / m-sign / m-t`，且 **m-t 必须是秒**
+      （毫秒会被当成"五万年后"直接判过期）。
+
+      **② `m-*` 这条路走不通**：反查 APK 15 个 dex，`m-sign` 唯一命中是
+      `x-am-sign` 的子串 —— 天猫校园自己**从不发** `m-*`。这是服务端对
+      "认不出来的客户端"的兜底分支，`m-sign` 的算法服务端独有，无解。
+      别再往这里投时间。
+
+      **③ 真机形态的协议头是对的**（同一套头打两个 API，对照实验）：
+
+      | API | 结果 |
+      |---|---|
+      | `mtop.common.gettimestamp` | **SUCCESS::接口调用成功** |
+      | `mtop.taobao.mloginService.smsSend` | `PROTOPARAM_MISSED::缺少协议参数`（不点名） |
+
+      头 = `x-sign` + `x-appkey` + `x-devid` + `x-ttid` + `x-utdid` + `x-umt`。
+      既然 gettimestamp 过，说明**签名和协议头完全正确**，缺的是 smsSend 专属的东西。
+
+      **④ 缺的就是 `x-sgext`**（决定性实验）：
+
+      ```
+      x-sign + 上面 5 个 x-*          → PROTOPARAM_MISSED
+      再加 x-sgext: "z"*180（假值）    → HTTP 419 FAIL_SYS_USER_VALIDATE::哎哟喂,被挤爆啦
+      ```
+
+      假 sgext 都能让**协议层立刻放行**，说明服务端只检查"有没有"；
+      内容真伪留给风控层。而风控层这一挡就是硬挡（`data` 为空，连滑块地址都不给）。
+
+      **结论**：短信登录的完整前置 = `x-sign` + `x-mini-wua`（已有）+ **真 `x-sgext`**。
+      三者都来自 SecurityGuard，其中 x-sgext 在 middletier（`getUnifiedSign`），
+      而 middletier 的 `70101` 初始化仍卡 `2405`（UT 桥已返回 1，桩已补，未过）。
+- [x] 阶段 4.9 · RGV587 里其实藏着滑块地址（2026-11-01 14:25）—— **h5 链路起死回生**
+      上一条把 x-sgext 判成必需，是**只在 App 网关成立**。h5 网关根本不要 sgext。
+
+      实测同一发码请求（h5 网关，`data` 放三个 JSON，不带 token、不带 umid）：
+
+      ```json
+      {"ret":["FAIL_SYS_USER_VALIDATE","RGV587_ERROR::SM::哎哟喂,被挤爆啦,请稍后重试"],
+       "data":{"url":"https://acs.m.taobao.com:443//h5/mtop.taobao.mloginService.smsSend/1.0/_____tmd_____/punish?x5secdata=…&x5step=2&action=captcha&pureCaptcha=true"}}
+      ```
+
+      **`RGV587_ERROR` 不等于失败** —— 它是"要你做滑块"，而且 `data.url` 就是滑块页
+      （`pureCaptcha=true`，打开即纯滑块，滑完种 `x5sec`）。
+
+      **真正的 bug**：`AliLogin.sendSms` 只在 `code == FAIL_SYS_USER_VALIDATE` 时去取 url，
+      而 `code` 取的是 `ret[0]`。服务端 `ret` 有**两种形态**：
+      `[FAIL_SYS_USER_VALIDATE, RGV587_ERROR::…]` 和 `[RGV587_ERROR::…]`。
+      遇到第二种就直接当"限流失败"返回，滑块页**永远不会被打开** ——
+      这就是"h5 逻辑走不通"的全部原因，不是风控真的封路。
+
+      修法（已落地）：`sendSms` 里**先取 punish url，再判错误码**；
+      `punishUrl()` 同时兼容 `data.url` / `data.punishUrl` / `data` 被序列化成字符串 /
+      正则兜底。真·限流（响应里确实没有 url）才提示冷却。
+
+      产品结论：**免 root 短信登录不需要 SecurityGuard** —— h5 网关 + 滑块 + `x5sec`
+      就够，App 网关那条 `x-sgext` 死路可以彻底放弃。
+
+      > ⚠ **2026-11-01 16:00 这条结论被推翻**：操作员实测天猫校园发码**从不弹滑块**——
+      > 官方客户端是被服务端当"自己人"直接放行的。h5 那条即使滑过也是低信用会话，
+      > 不解决问题。真正的差距仍在「客户端身份」，见阶段 4.10。
+- [x] 阶段 4.10 · fkTM 进程内跑通 SecurityGuard（2026-11-01 15:00）—— **基础设施达成**
+      产物：`fktm-android/.../water/SgEngine.kt` + `ui/SgProbeActivity.kt`。
+      做法：给 SG 一个**包装过的 Context**，让它在 fkTM 进程里以为自己是天猫校园。
+
+      | 关卡 | 现象 | 解法 |
+      |---|---|---|
+      | Android 14+ 禁加载可写 dex | `SecurityException: Writable dex file` | 用 `InMemoryDexClassLoader` 把 APK 里 15 个 `classesN.dex` 全读进内存 |
+      | Android 10+ 禁从可写目录 dlopen | `SecException: plugin main not existed` | SG 的 so 打进 `jniLibs/arm64-v8a`，`useLegacyPackaging=true` + `keepDebugSymbols` |
+      | SG 按 `sourceDir` 校验签名 | — | `ContextWrapper` 伪装包名 `com.tmall.campus.and`、`sourceDir` 指向 tmall.apk 副本 |
+      | SG 绕回 `getApplicationContext()` 拿包名 | `2403` | override 返回包装自身 |
+      | 缺密钥资源 | — | `yw_1222.jpg` 放进 assets |
+
+      实测日志（`adb shell am start -n com.fktm.app/.ui.SgProbeActivity`）：
+      ```
+      getInstance ok in 429ms
+      unified component = $Proxy11          ← middletier 插件已加载成功
+      init(<空>)     失败 code=2405
+      init(0)        失败 code=2403
+      init(24字符)   失败 code=2401
+      ```
+      **卡点**：middletier 的 `70101 init(authCode)`。空→2405、1~20 字符→2403、≥22→2401。
+      PC 的 unidbg 与真机 fkTM **行为完全一致**，证明不是环境问题，是 authCode 内容校验。
+
+- [x] 阶段 4.11 · 抓包（2026-11-01 16:00）—— **五条路全失败，代价大**
+
+      | 方案 | 结果 |
+      |---|---|
+      | frida hook `SSL_write`（spawn + module observer） | 抓到 libssl 明文（日志 SDK、匿名 getTimestamp），**抓不到 mtop** |
+      | mitmproxy 系统代理 + `adb reverse` | 只有 HTTP 进代理，HTTPS 不进 |
+      | mitmproxy + iptables DNAT + 系统证书 bind mount | **把手机搞断网**，且流量没到代理 |
+      | Reqable（VPN 模式，操作员自装） | 能解密 pangolin/hmma 的 HTTPS，**抓不到 mtop** |
+      | tcpdump（root） | 看到 App 连 `203.119.238.48:443` 等阿里 CDN（31 包），内容加密 |
+
+      **天猫校园的 mtop 走 tnet/cronet，绕过 VPN、绕过系统代理**（大概率 `bindSocket` 绑网卡），
+      只有内核层能看见，但看见了也是密文。
+
+      **教训（后来者必读）**：
+      - **不要**在操作员手机上反复改 iptables / 装系统证书 / 改 `http_proxy`。
+        已经两次导致设备断网，代价由操作员承担，操作员明确反对。
+      - 这条路本机已支出 >2 小时，**收益为零**。要抓 mtop，只能从 App 进程内部拿
+        （模块 / hook），不要在外围折腾网络栈。
+
+      **唯一收获（HAR 情报）**：
+      ```
+      POST http://amdc.m.taobao.com/amdc/mobileDispatch?appVersion=5.0.0&appkey=34270422&v=6.3
+      appName   = TmallCampusAndroid
+      channel   = 36324434270422
+      User-Agent= Dalvik/2.1.0 (Linux; U; Android 16; PKR110 Build/AP3A.240617.008)
+      signType  = sec   sign = 40 位 hex（HMAC-SHA1）
+      ```
+      ⇒ appKey `34270422` **确认有效**（`4272` 这种会回 UNKNOWN_APP）。
+      但 **`34270422` 与 `TmallCampusAndroid` 在天猫校园的 15 个 dex、90MB 原生库、资源里
+      全都搜不到** —— 运行时才拿到（服务端配置或加密配置），**静态提取 appSecret 这条路不通**。
 - [ ] 阶段 5 · fkTM 集成（wua 生成器落地方式届时定）
 - [ ] 阶段 6 · 维护策略（App/SDK 更新 → 重提 SO → 回归）
 

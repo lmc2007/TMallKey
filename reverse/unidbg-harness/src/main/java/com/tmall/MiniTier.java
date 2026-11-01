@@ -27,9 +27,18 @@ public class MiniTier {
                 + "&" + api + "&1.0&&600000@taobao_android_5.0.0&" + devId + "&&&&27&&&&&&&";
 
         com.alibaba.wireless.security.open.SecException.lastErrorCode = 0;
-        Object init = runner.probeQuiet(70101, "", Integer.valueOf(0));
-        System.out.println("[M] 70101 -> " + SGHarness.describe(init)
-                + " err=" + com.alibaba.wireless.security.open.SecException.lastErrorCode);
+        // 70101(authCode, flag)：空 → 2405；长度 1 → 2403；长度 ≥24 → 2401。
+        // 看起来是长度/格式校验，把长度梯度扫出来定阈值。
+        int[] lens = {1, 2, 3, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 32, 40, 64};
+        for (int len : lens) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < len; i++) sb.append((char) ('a' + (i % 26)));
+            String ac = sb.toString();
+            com.alibaba.wireless.security.open.SecException.lastErrorCode = 0;
+            Object probe = runner.probeQuiet(70101, ac, Integer.valueOf(0));
+            System.out.println("[M] 70101(len=" + len + ") -> " + SGHarness.describe(probe)
+                    + " err=" + com.alibaba.wireless.security.open.SecException.lastErrorCode);
+        }
 
         String requestId = "req-" + t;
         com.alibaba.wireless.security.open.SecException.lastErrorCode = 0;

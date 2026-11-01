@@ -61,13 +61,19 @@ class AliLogin(
         client.call(API_SEND_SMS, envelope(phone, umidToken))
         SendResult.Sent
     } catch (e: MtopError) {
-        if (e.code == "FAIL_SYS_USER_VALIDATE") {
-            val url = punishUrl(e)
-            if (url != null) SendResult.NeedCaptcha(url)
-            else SendResult.Failed(e.code, e.ret.joinToString(" | "))
-        } else if (e.code == "RGV587_ERROR") {
-            // 原文「哎哟喂,被挤爆啦」= 频率限流，不是指纹问题。继续猛点只会更糟。
-            SendResult.Failed(e.code, "请求太频繁，被风控限流了。请等 10-15 分钟再试，不要连续点。")
+        // ⚠ 顺序很重要：**先看响应里有没有 punish 地址，再看错误码**。
+        //
+        // 风控挡下来时服务端的 ret 有两种形态（实测 2026-11-01，同一个接口）：
+        //   ["FAIL_SYS_USER_VALIDATE", "RGV587_ERROR::SM::哎哟喂,被挤爆啦…"]
+        //   ["RGV587_ERROR::SM::哎哟喂,被挤爆啦…"]
+        // 两种都**带** `data.url`（`pureCaptcha=true` 的纯滑块页）。
+        // 以前只认 `FAIL_SYS_USER_VALIDATE` 才去取 url，遇到第二种就当"限流"
+        // 直接失败 —— 用户永远看不到滑块页，整条登录链就死在这里。
+        val url = punishUrl(e)
+        if (url != null) SendResult.NeedCaptcha(url)
+        else if (e.code == "RGV587_ERROR") {
+            // 真·限流（响应里确实没有 punish 地址）：继续猛点只会更糟
+            SendResult.Failed(e.code, "风控拦截且未给出验证入口，请等 10-15 分钟再试。")
         } else {
             SendResult.Failed(e.code, e.human())
         }
@@ -149,11 +155,34 @@ class AliLogin(
         )
     }
 
-    /** 从 USER_VALIDATE 的响应里抠出 punish 地址。 */
+    /**
+     * 从风控响应里抠出 punish 地址。
+     *
+     * 实测样本（`mtop.taobao.mloginService.smsSend`，h5 网关）：
+     * ```
+     * {"ret":["FAIL_SYS_USER_VALIDATE","RGV587_ERROR::SM::哎哟喂,被挤爆啦…"],
+     *  "data":{"url":"https://acs.m.taobao.com:443//h5/<api>/1.0/_____tmd_____/punish?x5secdata=…&x5step=2&action=captcha&pureCaptcha=true"}}
+     * ```
+     * `pureCaptcha=true` 意味着打开就是纯滑块页，滑完会种 `x5sec`。
+     *
+     * 三种取法都要试：`data.url`、`data.punishUrl`、以及 `data` 被序列化成字符串的情况。
+     */
     private fun punishUrl(e: MtopError): String? = runCatching {
         val body = e.payload
-        val obj = JSONObject(body)
-        obj.optJSONObject("data")?.optString("url")?.takeIf { it.startsWith("http") }
+        if (body.isBlank()) return@runCatching null
+        val data = JSONObject(body).opt("data")
+        val direct = when (data) {
+            is JSONObject -> data.optString("url").ifBlank { data.optString("punishUrl") }
+            is String -> runCatching {
+                JSONObject(data).let { it.optString("url").ifBlank { it.optString("punishUrl") } }
+            }.getOrDefault("")
+            else -> ""
+        }
+        val candidate = direct.ifBlank {
+            // 兜底：直接把响应体里第一个 punish 链接捞出来
+            RE_PUNISH.find(body)?.value ?: ""
+        }
+        candidate.takeIf { it.startsWith("http") }
     }.getOrNull()
 
     companion object {
@@ -167,5 +196,8 @@ class AliLogin(
 
         /** 人机验证通过后要采集的 cookie 名。 */
         val CAPTCHA_COOKIES = listOf("x5sec", "_x5sec", "x5secdata", "x5sectag")
+
+        /** 兜底从响应体里捞 punish 链接（`data` 结构变了也不会漏）。 */
+        private val RE_PUNISH = Regex(""""url"\s*:\s*"(https://[^"]*punish[^"]*)"""")
     }
 }

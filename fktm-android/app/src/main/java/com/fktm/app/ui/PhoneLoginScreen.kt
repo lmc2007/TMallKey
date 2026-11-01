@@ -104,10 +104,10 @@ fun PhoneLoginScreen(
             val r = withContext(Dispatchers.IO) { ali.sendSms(phone, umid) }
             WaterDiag.log(
                 context.applicationContext, "smsSend",
-                "umidLen=${umid.length} -> " + when (r) {
+                "phone=${phone.take(3)}****${phone.takeLast(2)} umidLen=${umid.length} -> " + when (r) {
                     is AliLogin.SendResult.Sent -> "SENT"
-                    is AliLogin.SendResult.NeedCaptcha -> "NEED_CAPTCHA"
-                    is AliLogin.SendResult.Failed -> r.code
+                    is AliLogin.SendResult.NeedCaptcha -> "NEED_CAPTCHA url=${r.url.take(120)}"
+                    is AliLogin.SendResult.Failed -> "${r.code} | ${r.message.take(160)}"
                 },
             )
             busy = false
@@ -144,6 +144,10 @@ fun PhoneLoginScreen(
             res.onSuccess { jar ->
                 val campus = withContext(Dispatchers.IO) { ali.confirmCampusUser() }
                 busy = false
+                WaterDiag.log(
+                    context.applicationContext, "smsLogin",
+                    "ok cookies=${jar.size} campus=${campus ?: "OK"}",
+                )
                 if (campus != null) {
                     error = "登录成功，但校园侧不认这个账号：$campus"
                 } else {
@@ -151,6 +155,10 @@ fun PhoneLoginScreen(
                 }
             }.onFailure { e ->
                 busy = false
+                WaterDiag.log(
+                    context.applicationContext, "smsLogin",
+                    "fail ${e.message?.take(200)}",
+                )
                 error = e.message
             }
         }

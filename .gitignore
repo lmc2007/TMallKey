@@ -35,6 +35,11 @@ extracted/
 tools/
 jadx-out*/
 
+#  fkTM 内嵌的 SecurityGuard 原生库与密钥（阿里版权，且需从天猫校园 APK 现场提取）
+#  提取方法见 PROMPT-SMS-LOGIN.md「现成资产」：APK 里 lib/arm64-v8a/*sg* + assets/yw_1222.jpg
+fktm-android/app/src/main/jniLibs/
+fktm-android/app/src/main/assets/yw_1222.jpg
+
 # ---------- 4. 本机环境 / 构建产物 ----------
 .gradle/
 build/
@@ -91,3 +96,7 @@ lspatch-module/app/libs/
 # reverse 工程构建产物
 reverse/**/target/
 hs_err_pid*.log
+
+# 抓包产物（含请求头，可能有凭证）
+reverse/frida/mtop_capture.txt
+reverse/frida/*.log

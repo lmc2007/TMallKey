@@ -67,6 +67,13 @@
                 android:resource="@xml/shortcuts" />
         </activity>
 
+        <!-- 逆向自检：在 fkTM 进程内加载天猫校园的 SecurityGuard（只供 adb 拉起） -->
+        <activity
+            android:name=".ui.SgProbeActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.FkTM" />
+
         <!-- 下拉快捷磁贴：一点开锁 -->
         <service
             android:name=".QuickUnlockTileService"

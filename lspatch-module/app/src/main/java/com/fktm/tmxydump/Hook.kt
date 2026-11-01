@@ -58,6 +58,7 @@ class Hook : IXposedHookLoadPackage {
                         hookDoorUnlock(lpparam.classLoader)
                         hookMtopParams(lpparam.classLoader)
                         hookMtopResult(lpparam.classLoader)
+                        hookNetworkRequest(lpparam.classLoader)
                     }
                 },
             )
@@ -169,6 +170,70 @@ class Hook : IXposedHookLoadPackage {
         }
     }
 
+    /**
+     * 抓 App **原生** 的 mtop 请求。
+     *
+     * H5 的 mtop 走 WindVane（[hookMtopParams] 已覆盖），但登录 / 发短信是 UCC SDK
+     * 直接调 mtopsdk —— 那条链不经过 WindVane，之前完全看不到。
+     *
+     * `DefaultCallImpl.openConnection(Request)` 是真正建连的地方：
+     * `Request.url` 已经拼好全部 query（sign / x-sign / x-sgext 都在里面），
+     * `Request.headers` 就是随后要发出去的头。
+     *
+     * 目的很具体：PC 侧打 `mtop.taobao.mloginService.smsSend` 一直回
+     * `FAIL_SYS_PROTOPARAM_MISSED`，得看清 App 自己那一条多了什么。
+     */
+    private fun hookNetworkRequest(classLoader: ClassLoader) {
+        runCatching {
+            val reqCls = XposedHelpers.findClass(
+                "mtopsdk.network.domain.Request", classLoader,
+            )
+            XposedHelpers.findAndHookMethod(
+                "mtopsdk.network.impl.DefaultCallImpl",
+                classLoader,
+                "openConnection",
+                reqCls,
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val req = param.args.getOrNull(0) ?: return
+                        val url = runCatching {
+                            XposedHelpers.getObjectField(req, "url") as? String
+                        }.getOrNull() ?: return
+                        // 只关心账号相关接口，别把整页流量都写进文件
+                        if (!url.contains("mloginService") &&
+                            !url.contains("smsSend") &&
+                            !url.contains("smsLogin") &&
+                            !url.contains("member.user.login")
+                        ) return
+
+                        probeLog("net URL ${url.take(1400)}")
+
+                        val headers = runCatching {
+                            XposedHelpers.getObjectField(req, "headers") as? Map<*, *>
+                        }.getOrNull() ?: return
+                        val keys = headers.keys.joinToString(",") { it.toString() }
+                        probeLog("net HDR-KEYS $keys")
+                        headers.forEach { (k, v) ->
+                            val name = k as? String ?: return@forEach
+                            val value = (v as? String) ?: ""
+                            // 安全头一个字都不能截：这几个正是 fkTM 复刻请求时需要的东西，
+                            // 只记录 "有/没有" 等于没记录。
+                            val full = name.lowercase() in SECURITY_HEADERS
+                            probeLog("net HDR $name=${if (full) value else value.take(120)}")
+                            if (full && value.isNotBlank()) {
+                                secHeaders[name.lowercase()] = value
+                                scheduleFlush()
+                            }
+                        }
+                    }
+                },
+            )
+            probeLog("DefaultCallImpl.openConnection hooked")
+        }.onFailure {
+            probeLog("DefaultCallImpl NOT hooked: ${it.javaClass.simpleName}: ${it.message}")
+        }
+    }
+
     // ---------------- 门锁凭证 ----------------
 
     /** 用户在补丁版天猫校园里每次点「开锁」，这里就多一条（按 mac 去重，保留最新）。 */
@@ -180,6 +245,15 @@ class Hook : IXposedHookLoadPackage {
     /** 上一次成功推给 fkTM 的整包内容（cookie 或门锁变了才重推）。 */
     @Volatile
     private var lastPushed: String = ""
+
+    /**
+     * 从 mtop 请求里抓到的安全头（小写名 → 值）。
+     *
+     * 这是**免 root 短信登录的关键**：App 网关的 `smsSend` 只差 `x-sgext`，
+     * 而 `x-sgext` 由 SecurityGuard 的 middletier 现算，PC 侧复刻不出来。
+     * 抓一次真机的，fkTM 就能照着发。
+     */
+    private val secHeaders = ConcurrentHashMap<String, String>()
 
     /** 抓到一个新门锁后，1.2 秒内合并推送一次，不用等下一个 tick。 */
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -449,6 +523,12 @@ class Hook : IXposedHookLoadPackage {
             mv.put(JSONObject().put("mac", mac).put("syncData", sync))
         }
         obj.put("mvlocks", mv)
+        // 安全头（x-sgext / x-mini-wua / x-sign…）：fkTM 要自己发 mtop 请求就得复刻这几条。
+        // 它们都是 SecurityGuard 现算的，PC 侧复刻不出来，只能从真机抓。
+        if (secHeaders.isNotEmpty()) {
+            obj.put("security", JSONObject(secHeaders))
+            probeLog("envelope security keys=${secHeaders.keys}")
+        }
         return obj.toString()
     }
 
@@ -466,6 +546,13 @@ class Hook : IXposedHookLoadPackage {
         private const val SLOW_MS = 60_000L
         private const val PORT = 42741
         private const val TOKEN = "fktm-cookie-pull-v1"
+
+        /** 必须整条记录的安全头（其余头截断到 120 字符只作参考）。 */
+        private val SECURITY_HEADERS = setOf(
+            "x-sgext", "x-mini-wua", "x-sign", "x-umt", "x-umidtoken", "x-pv",
+            "x-utdid", "x-devid", "x-ttid", "x-appkey", "x-app-ver", "x-bx-version",
+            "x-features", "x-nettype", "x-location", "x-platform", "x-c-traceid",
+        )
 
         private val HOSTS = listOf(
             "https://share.confong.cn",
