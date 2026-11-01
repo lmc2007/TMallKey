@@ -335,14 +335,13 @@ python fktm/cli.py <cmd>
 ### 4.1 分层
 
 ```
-ui/           MainScreen · UpdateCard · theme      (Compose，无业务)
+ui/           MainScreen · WaterScreen · AboutScreen · UpdateCard · theme  (Compose，无业务)
 vm/           UnlockViewModel                       (状态 + 编排)
 ──────────────────────────────────────────────────  ← 业务边界
 ble/          BleLockClient                         (GATT + 连接生命周期)
 protocol/     VocProtocol                           (纯算法，零 Android 依赖)
 credential/   CredentialStore · LockCredential      (Keystore 加密存储)
-              ShizukuLogcatGrabber · LogcatGrabService
-              GrabForegroundService · LogcatParser
+              RootGrabber · GrabForegroundService · LogcatParser
 update/       AppUpdateRepository · UpdateManifest · ApkInstaller
 ```
 
@@ -469,29 +468,46 @@ CredentialStore
 - `maskedKey()` 只露头尾各 4 位，UI 任何地方都不显示完整 key。
 - `allowBackup=false` + `data-extraction-rules.xml` 里 **`exclude` 整个 `sharedpref` 与 `file` 域**（云备份、设备迁移两条都排）—— key 不能跟着备份走。
 
-### 4.8 抓取链路（Shizuku）
+### 4.8 抓取链路
 
-目标：拿到天猫校园打印在 logcat 里的 `activationKey`。难点在于 Android 4.1+ 普通 App 只能读自己进程的日志，`READ_LOGS` 是系统级权限。
+凭证（`activationKey`）只有两个来源，按优先级：
+
+**① 模块自动同步（免 root，主路径）**
+
+LSPatch 补丁版天猫校园里的模块在门锁页 `VocLockHelper.unlock(Context, JSBParams, cb)`
+处截下 `macAddress + activationKey`，和 cookie 一起打成
+`{cookies, doorlocks, mvlocks}` 整包，经本地回环 Socket（127.0.0.1:42741）交给 fkTM：
+
+```
+模块 Hook ──整包──► Socket 42741 ──pull──► CookiePuller
+                                              │
+                                              ▼
+                             ModuleEnvelope → LockImport → CredentialStore
+```
+
+`mvlocks`（掌门神通）没有静态钥匙，只登记 MAC（`type=mv`），开锁时用会话向
+`guide.zmst.unlock.data.get` 现取一次性开锁帧。
+
+**② root 抓取（备选，需 root）**
 
 ```
 GrabForegroundService（本 App，dataSync 前台服务）
-        │  绑定
+        │ 把进程抬到前台优先级
         ▼
-ShizukuLogcatGrabber  ──bindUserService()──►  LogcatGrabService（跑在 shell 进程）
-                                                    │ ProcessBuilder("/system/bin/logcat", ...)
-                                                    ▼
-                                              LogcatParser  → LockCredential
+RootGrabber ── su -M logcat ──► LogcatParser → LockCredential
 ```
 
-三个必须记住的坑（都真机复现过）：
+两个必须记住的点：
 
-1. **`Shizuku.newProcess` 在 13.1.5 已是 private**。必须用 `UserService`（AIDL + `bindUserService()`），在 shell 进程里自己 `ProcessBuilder` 起 logcat。manifest 无需声明 service。
-2. **UserService 进程不随 unbind 消亡**。它会 reparent 到 init，root 下一直挂着 `com.fktm.app:grab`。覆盖安装后旧进程跑旧代码 → `onServiceConnected` 永不回调（表现：点抓取一直转圈）。
-   → 修复：`version` 用 **APK `lastUpdateTime`（秒）**；`grab()` 开头扫 `/proc/<pid>/cmdline` 自我回收同名僵尸。
-3. **必须起前台服务**。用户点「开始抓取」后会切到天猫校园去开锁，此时 fkTM 在后台，ColorOS 会直接冻结进程（`OplusHansManager: freeze uid`），协程和 binder 回调全停。
-   → 必须**在 App 仍在前台时**启动 `GrabForegroundService`（Android 12+ 禁止后台启动前台服务）。「开小窗」也救不了。
+1. **必须起前台服务**。用户点「抓取」后会切到天猫校园去开锁，此时 fkTM 在后台，
+   ColorOS 会直接冻结进程（`OplusHansManager: freeze uid`），协程全停。
+   → 必须**在 App 仍在前台时**启动 `GrabForegroundService`（Android 12+ 禁止后台启动前台服务）。
+2. **logcat 的 tag 是精确匹配**。`VocLockHelper` 匹配不到 `VocLockHelperV2`，
+   必须写 `VocLockHelperV2:V`。
 
-另一个细节：logcat 的 tag 是**精确匹配**。`VocLockHelper` 匹配不到 `VocLockHelperV2`，必须写 `VocLockHelperV2:V`。
+> Shizuku UserService 抓取方案已于 2026-11-01 移除：免 root 场景已由上面的模块自动同步
+> 覆盖，不再维护两套抓取实现。`aidl/`、`LogcatGrabService`、`ShizukuLogcatGrabber`
+> 及其单测一并删除，Shizuku 依赖与 `ShizukuProvider` 也已从构建/清单里移除。
 
 ### 4.9 三个入口
 
@@ -746,6 +762,6 @@ iOS 上对应 CoreBluetooth，注意 `CBCharacteristicProperties` 的位掩码�
 | 连接生命周期 / 保活 | `fktm-android/.../ble/BleLockClient.kt`（对照 `setForeground` / `beginTask` / `endTask` / `scheduleIdleClose`） |
 | 收发内核 | 同文件 `sendFrame` / `recvFrame` / `ensureConnected` |
 | 凭证加密 | `.../credential/CredentialStore.kt` |
-| 抓取链路 | `.../credential/ShizukuLogcatGrabber.kt` + `LogcatGrabService.kt` |
+| 抓取链路 | 免 root：`.../water/CookiePuller.kt` → `ModuleEnvelope` → `LockImport`；root：`.../credential/RootGrabber.kt` |
 | 更新清单规范 | `update/README.md` |
 | 发布流水线 | `.github/workflows/release.yml` + `prepare-release.yml` |

@@ -6,6 +6,48 @@
 
 ---
 
+## ★ 2026-11-01 11:40 重大修订：CM 身份是 `.confong.cn` 的 cookie2，与补丁无关
+
+**结论（已实验闭环）**：
+
+1. CM 身份 = **`.confong.cn` 域的 `cookie2` 单条**。taobao 域 cookie2、SG 各头都不参与。
+2. **补丁版登录照样会签发 confong cookie2**：11-01 11:31:59 补丁版重登后，
+   `.confong.cn` 与 `.taobao.com` 的 cookie **同一秒创建**，且 `CookieProcessor` 把它复制到
+   `.tmallcampus.com`。
+3. 拿补丁版这条 cookie2 从 PC 直连 mtop（appKey 12574478）实测全通：
+   `member.app.user.get`（CM✅ 昵称/手机号）、`guide.zmst.unlock.data.get`（encryptData 52 字符）、
+   `activity.list.withdetail`、`member.user.login` 全 SUCCESS。
+4. ⇒ **免 root 链路不需要 SecurityGuard**：x-sign / wua / x-sgext 对 CM 全部不必需。
+
+**因此作废的旧结论**：
+
+| 旧结论 | 为什么错 |
+|---|---|
+| CM 身份 = taobao cookie2 | 实际是 confong 域那条；taobao 那条只回 `SESSION_EXPIRED` |
+| 补丁版会话永远 CM❌（登录时 native 建档校验签名） | dump 来自模块 socket，只有 taobao 域，**从来没带过 confong cookie2** |
+| 必须 native mtop sync 才能激活 CM | 只要有 confong cookie2，纯 PC h5 请求就能读 CM 数据 |
+
+**新的产品路径（免 root）**：
+补丁版登录 → 读自己 WebView 的 `.confong.cn` cookie（`CookieManager.getCookie`，无需 root）
+→ 交给 fkTM → fkTM 用这条 cookie 调 mtop → 接水 / MV 解锁。
+有效期到 **11-24**，每次重新登录会重签发。
+
+**已落地的代码修复（11-01 12:10）**：
+
+| 位置 | 问题 | 修法 |
+|---|---|---|
+| `WaterSession.parseCookieDb`（app） | 多域拍平后 `.taobao.com` 的 cookie2 覆盖 confong 的 → 导入即丢 CM | 新增纯函数 `mergeCookieRows()`，confong 域 cookie2 最后写 |
+| `Hook.dumpCookieMap`（模块） | 同上（HOSTS 里 confong 在前，必被覆盖） | 记下 confong 的 cookie2，最后统一写 |
+| `MtopClient.absorb`（app） | mtop 响应带的 `cookie2;Domain=.taobao.com` 用几次就把 CM 会话换掉 | 已有 cookie2 时只接受 confong 域覆盖；空 jar 照收 |
+| `Cookies.update_from_set_cookie`（py） | 同上 | 同上 |
+
+验收：`fktm/water/cmcheck.py` 用补丁版 cookie 库跑通
+（CM✅ 昵称/手机 + 水卡 + `zmst.unlock.data.get` 的 encryptData 52 字符），
+连跑两轮稳定；`selftest.py` 74/74、`CookieMergeTest` 7/7；双端编译通过。
+**未做**：设备安装与真机点「导入」（等操作员授权）。
+
+---
+
 ## 一、现状盘点（2026-10-30）
 
 ### 已完全逆向 ✅
@@ -22,7 +64,7 @@
 
 | 路线                        | 死因                                   | 日期               |
 | ------------------------- | ------------------------------------ | ---------------- |
-| 补丁版 CM 档案                 | 登录时 CM 建档校验 native 反作弊头（真实签名），补丁签名被拒 | 10-21 / 10-30 复证 |
+| ~~补丁版 CM 档案~~ | ~~登录时 CM 建档校验 native 反作弊头~~ → **11-01 推翻**：当时 dump 缺 `.confong.cn` cookie2，实际补丁版有 CM（见文件头修订） | 10-21 / 10-30 ❌作废 |
 | `member.user.login` 补建档   | 返回 doHaveLogin:true 但 CM 层不变         | 10-21            |
 | 修 cookie 补 CM（3PcFlag 等）  | 逐条二分证实只看 cookie2                     | 10-30            |
 | 淘宝 H5 / 淘宝授权 / 短信 / 运营商一键 | appkey+签名+反作弊（wua）绑定                 | 10-20            |
@@ -145,13 +187,94 @@ README 里有完整事实表、命令码、JNI 桩坑与 bootstrap 步骤。
 
       `flag=8` 得到 51 字节原始数据（base64 69 字符）；`flag=4` / `flag=1` 报 1412（待查）。
 
-- [ ] 阶段 4 · 一致性验证（unidbg 产物 vs 真机抓包；CM❌ 会话 + 自产 wua 建档）
+- [x] 阶段 4 · 一致性验证（2026-10-31 23:50）—— **达成**
+      x-sign 与真机逐字节一致（rt=7: `ab2e7501…`, rt=3: `d929…`, rt=2: `0ccb…`）；
+      自产 x-sign 打 `mtop.common.gettimestamp` 返回 **`SUCCESS::接口调用成功`**
+      （PC 直连，不经过真机、不需要 root）。
+      产物：`SignCli`（22 段 INPUT → 10401 → x-sign / x-mini-wua）+ `reverse/mtop_app_probe.py`。
+      **前提**：必须 `-Dsg.apkmap=true` —— 608 的根因就是 SG 签名时读 `/data/app/<pkg>/base.apk`
+      没映射上（`[IO-REQ] …base.apk` 出现在抛错前一行）。
+      遗留：`mtop.taobao.mloginService.smsSend` 仍 `FAIL_SYS_PROTOPARAM_MISSED`
+      （业务参数/风险参数/x-sign 位置四种组合全试过），缺的是一个未识别协议级参数，
+      下一步靠真机抓一次明文请求头定性。
+- [x] 阶段 4.5 · CM 层凭据定性（2026-11-01 11:50）—— **达成，且改写了一条公理**
+      **CM 身份 = `.confong.cn` 域的 `cookie2` 单条**（不是 taobao 域 cookie2，不是 SG 头）。
+      消融实验（`member.app.user.get`，h5 网关）：
+
+      | 凭据 | 结果 |
+      |---|---|
+      | taobao 域全量 37 条 | `CM_FAIL_BIZ_USER_NOT_LOG_IN` |
+      | taobao + confong | **SUCCESS（campusNickName=稀有的活力企鹅）** |
+      | 去掉 confong 的 cookie2 | `FAIL_SYS_SESSION_EXPIRED` |
+      | **只发 confong 的 cookie2 一条** | **SUCCESS** |
+      | 只发 taobao 的 cookie2 | `FAIL_SYS_SESSION_EXPIRED` |
+
+      只带这一条就能读到 `share.applet.activity.list.withdetail` 的真实校园数据；
+      `fund.use.device.info.get` 等变成 `FAIL_SYS_BIZPARAM_MISSED`（说明登录已过，只缺业务参数）。
+      产物：`reverse/cm_verify.py`。
+      **冲击**：旧结论"补丁版会话永远 CM❌"证据不成立 —— 当时的 dump 只有 taobao 域，
+      **从来没带过 confong cookie2**。待重测。
+      未定论：confong cookie2 由谁签发（原生 cronet 写 CookieManager 后 WebView 读走；
+      H5 里没有任何 SSO/API 路径，数据全走 WindVane→native mtop）。
+- [x] 阶段 4.6 · confong cookie2 的签发方（2026-11-01 11:55）—— **查清机制，闭环缺一次登录**
+      - 校园 H5 的 mtop 网关是 **`acs-m.confong.cn`**（appKey 12574478 + h5 md5 sign），
+        纯浏览器打开时请求**不带任何淘宝身份**，只拿匿名 cookie2；H5 只"检查"登录
+        （`member.user.login` 读 `doHaveLogin`），不发起登录。
+      - App 里没有生成 confong cookie2 的代码，只有搬运：
+        `com.tmall.campus.bizwebview.cookie.CookieProcessor` 在 `NOTIFY_LOGIN_SUCCESS` 时
+        把 `.confong.cn` 的 `cookie2` 复制到 `.tmallcampus.com`，登出时删掉。
+      - 设备 Cookie 库：confong 的 6 条 cookie 与 taobao 的 cookie2/unb/_tb_token_
+        **同一秒创建（11-01 10:20:48）** ⇒ 由一次登录/SSO 同时下发，不是 SG 计算的；
+        有效期到 **11-24**。
+      - 卡点：现有两套淘宝 WebView 会话都已被服务端判失效（h5 直接回 `unb=;Max-Age=0`），
+        PC 上无法复现 SSO。**判定实验 = 重新登录一次后 dump WebView Cookies，
+        看 confong cookie2 是否刷新。**
+      产物：`reverse/web_sso_probe.py`（无头 Chrome + CDP 抓请求/Set-Cookie）。
+- [x] 阶段 4.7 · 门锁自动导入（A 路线，2026-11-01 13:00）—— **VOC 截钥匙 / MV 走在线**
+      - `guide.door.lock.user.get` 从 fkTM 侧不可用：h5 → `FAIL_BIZ_CE003::参数异常`，
+        `/gw` + 自产 x-sign → `FAIL_SYS_PROTOPARAM_MISSED`。所以 VOC 的 `activationKey`
+        只能从**门锁页 H5 → `VocLockHelper.unlock(JSBParams)`** 里截，
+        「打开一次天猫校园」必须包含**打开一次门锁页**，之后 fkTM 自己 pull，不再需要它。
+      - 模块改为推**整包** `{cookies, doorlocks, mvlocks}`，抓到锁 1.2s 内补推一次；
+        fkTM 侧 `ModuleEnvelope` 解析 + `LockImport`（VOC 优先）入库，
+        主界面 ON_RESUME 即 pull（`UnlockViewModel.syncFromModule`）。
+      - **MV 锁不需要钥匙**：`guide.zmst.unlock.data.get { macId }` 用 confong cookie2
+        就能拿 `encryptData`（52 字符），开锁时现取现写 AFF1。
+        实测 **macId 必须是冒号格式**，去掉冒号回
+        `FAIL_BIZ_ZMST_DOOR_GET_UNLOCK_DATA_ERROR`（业务错，换格式没意义）。
+      - **实测修正（13:25）**：只「打开门锁页」拿不到钥匙 —— 页面只发 `door.lock.user.get`，
+        其响应里没有 `secretKey`（`MtopWVPlugin.wvCallback` 探针里完全没有 lock 相关 data），
+        `activationKey` 只在用户**点一次开锁**时作为 `VocLockHelper.unlock(JSBParams)` 入参出现。
+        所以免 root 的首次动作是「开门锁页 + 点一次开锁」，之后完全脱离天猫校园。
+      - 回归：单测 89/89；设备 `providerLocks | voc=1 mv=0` + `syncPull doorlocks=1`，
+        UI 列表出现「门锁 02:97 / 钥匙 160d…99ca」；PC `zmst.unlock.data.get` → SUCCESS。
 - [ ] 阶段 5 · fkTM 集成（wua 生成器落地方式届时定）
 - [ ] 阶段 6 · 维护策略（App/SDK 更新 → 重提 SO → 回归）
 
 **已确认的旁证（10-31）**：`x-mini-wua` 由 mtop 的
 `InnerProtocolParamBuilderImpl` → `getSecBodyDataEx(timestamp, appKey, authCode, ext, 8)` 产出；
 `x-sgext` 来自 middletier 的 `getUnifiedSign`（两条独立链路，都要）。
+
+### P1 补充 · 20:00 收口（10-31）
+
+**x-sign(10401) 的 608 已经定位到"谁抛的"，但没定位到"为什么"**：
+
+| 事实 | 证据 |
+|---|---|
+| 608 是 10401 处理链自己返回的裸状态码 | `sub_11F630`(0x11F630) 唯一调用点 0x3B4C0 在 `doCommandNative` 尾部错误收口；`sub_39338` 查不到错误码条目 → `SecException(608,"")` |
+| 参数已被完整读取 | verbose：5 个实参全部 `GetObjectArrayElement` 读完 + `booleanValue()` 后才抛 |
+| 不是 JDK 反射 | 全量 `--add-opens` 后 `InaccessibleObjectException` 消失，仍 608 |
+| 不是异步初始化没跑完 | `-Dsg.sleep=8000` 仍 608 |
+| 不是 requestType | 1..10 全 608 |
+
+**工具能力纠正**：`Backend#hook_add_new(CodeHook,…)` 两个后端都可用。
+之前 hook 不触发是因为 **libmain 被加载两份**（0x12000000 / 0x12600000，执行的是后者）。
+新增 `SGTrace.java`（`-Dsg.trace=` / `-Dsg.trace.sp=` / `-Dsg.trace.deref=`）与
+`-Dsg.verbose` 下 JNI 返回地址定位法 —— 这是后续查 native 问题的标准手段。
+
+**下一步主攻假设（当晚已被推翻）**：608 可能是 **AVMP(module 6) 未就绪** 的快速失败。
+实际根因是 **`/data/app/<pkg>/base.apk` 没映射**（见下节），加上 `-Dsg.apkmap=true` 后
+10401 直接出签名，且与真机逐字节一致。
 
 | 维度         | 评估                                    |
 | ---------- | ------------------------------------- |

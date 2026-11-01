@@ -182,12 +182,10 @@ pre code{background:none; border:0; padding:0; color:#C9E4DB; white-space:pre}
 .tab-bar{display:flex; gap:6px; flex-wrap:wrap; border-bottom:1px solid var(--border)}
 .tab-bar label{cursor:pointer; font-size:13.5px; font-weight:500; color:var(--muted); padding:10px 16px; border:1px solid transparent; border-bottom:0; border-radius:10px 10px 0 0; margin-bottom:-1px}
 .tab-bar label:hover{color:var(--text)}
-#tab-phone:checked ~ .tab-bar label[for="tab-phone"],
 #tab-pc:checked ~ .tab-bar label[for="tab-pc"],
 #tab-lsp:checked ~ .tab-bar label[for="tab-lsp"],
 #tab-root:checked ~ .tab-bar label[for="tab-root"]{background:var(--surface); border-color:var(--border); color:var(--teal)}
 .tab-panel{display:none; padding-top:20px}
-#tab-phone:checked ~ .panel-phone,
 #tab-pc:checked ~ .panel-pc,
 #tab-lsp:checked ~ .panel-lsp,
 #tab-root:checked ~ .panel-root{display:block}
@@ -315,22 +313,25 @@ footer{border-top:1px solid var(--border); padding:36px 0 46px; font-size:13px; 
       <div class="sec-head">
         <div class="sec-idx">GET STARTED</div>
         <h2>三步开门</h2>
-        <p class="sec-desc">唯一的门槛是「拿凭证」：需要让天猫校园自己开一次锁，把 activationKey 暴露在日志里。逐步操作见下方 <a href="#tutorial">完整使用教程</a>。</p>
+        <p class="sec-desc">唯一的门槛是「拿凭证」：需要让天猫校园自己开一次锁，在那一刻把 activationKey 取出来（补丁版会自动同步，root / adb 方式则从日志里读）。逐步操作见下方 <a href="#tutorial">完整使用教程</a>。</p>
       </div>
       <div class="steps">
         <div class="step">
           <div class="num">STEP 01</div>
           <h3>拿凭证</h3>
-          <p>两条路，任选其一：</p>
+          <p>免 root 用「补丁版天猫校园」，已 root 用「root 一键抓取」：</p>
           <ul>
-            <li><b>手机端</b>：装 Shizuku 并激活，App 内「导入凭证 → 自动抓取」，然后去天猫校园门口开一次锁。</li>
-            <li><b>电脑端</b>：手机开 USB 调试连电脑，跑仓库里的 <code class="mono">fktm/p0_capture.bat</code> 抓 logcat。</li>
+            <li><b>免 root（推荐）</b>：装补丁版天猫校园 → 登录 → 在它的门锁页<b>点一次开锁</b>，
+              钥匙会自动同步进 TmallKey —— 不用导出、不用点导入、不用电脑。</li>
+            <li><b>已 root</b>：TmallKey →「+ 添加门锁凭证」→「root 抓取」，一次拿齐钥匙和饮水登录态。</li>
+            <li><b>排障</b>：手机开 USB 调试连电脑，跑 <code class="mono">fktm/p0_capture.bat</code> 抓 logcat。</li>
           </ul>
         </div>
         <div class="step">
           <div class="num">STEP 02</div>
           <h3>导入</h3>
-          <p>抓到后自动填入表单，确认保存即可。也可以手工填地址 + 32 位 activationKey，或直接粘贴电脑端导出的 credentials.json。</p>
+          <p>补丁版抓到的锁会<b>自动出现在门锁列表</b>，不用做任何操作；root 抓取会填进表单，确认保存即可。
+          也可以手工填地址 + 32 位 activationKey，或粘贴电脑端导出的 credentials.json。</p>
         </div>
         <div class="step">
           <div class="num">STEP 03</div>
@@ -390,13 +391,14 @@ footer{border-top:1px solid var(--border); padding:36px 0 46px; font-size:13px; 
 
         <div class="dl-actions">
           <a class="btn btn-primary dl-btn-big" id="dl-patch" href="https://github.com/lmc2007/TMallKey/releases/latest/download/tmcampus-5.0.0-lspatched.apk" rel="noopener">下载补丁版天猫校园</a>
-          <a class="btn btn-ghost" href="#tutorial">用法见下方教程「方式三」</a>
+          <a class="btn btn-ghost" href="#tutorial">用法见下方教程「补丁版天猫校园」</a>
         </div>
 
         <div class="mirrors">
           <p>国内直连 GitHub 较慢时，可换下面的加速镜像下载（同一个文件）：</p>
           <div class="mirror-list" id="dl-patch-mirrors">
             <a class="mirror" href="https://github.com/lmc2007/TMallKey/releases/latest/download/tmcampus-5.0.0-lspatched.apk" rel="noopener">GitHub 直连</a>
+            <a class="mirror" href="https://gh-proxy.com/https://github.com/lmc2007/TMallKey/releases/latest/download/tmcampus-5.0.0-lspatched.apk" rel="noopener">gh-proxy 镜像</a>
           </div>
         </div>
 
@@ -420,8 +422,7 @@ footer{border-top:1px solid var(--border); padding:36px 0 46px; font-size:13px; 
               <tr><th>手机</th><td>Android 8.0（API 26）以上，具备蓝牙</td></tr>
               <tr><th>天猫校园</th><td>已登录、已绑定该门锁，<b>能正常开锁</b></td></tr>
               <tr><th>TmallKey</th><td>从本页上方下载 APK 安装，或去 <a href="https://github.com/lmc2007/TMallKey/releases" rel="noopener">Releases</a></td></tr>
-              <tr><th>补丁版天猫校园</th><td><b>方式三</b>需要，见下文与本页下载区；装了它就不需要 Shizuku</td></tr>
-              <tr><th>Shizuku</th><td>只有「方式一」需要，见下文</td></tr>
+              <tr><th>补丁版天猫校园</th><td><b>免 root 必需</b>，见下文与本页<a href="#download">下载区</a>（与官方版同包名，只能装一个）</td></tr>
             </tbody>
           </table>
         </div>
@@ -432,23 +433,53 @@ footer{border-top:1px solid var(--border); padding:36px 0 46px; font-size:13px; 
         </div>
 
         <h3>第 1 步 · 拿到凭证</h3>
-        <p>钥匙是服务端按门下发的，只有天猫校园知道、也只会下发给它。所以要「拿」到钥匙，就得让它自己开一次锁，同时把过程记下来。有 root 走 <b>root 一键抓取</b>；没 root 用方式三（补丁版天猫校园）。</p>
+        <p>钥匙是服务端按门下发的，只有天猫校园知道、也只会下发给它。所以要「拿」到钥匙，就得让它自己<b>开一次锁</b>，同时把过程记下来。有 root 走 <b>root 一键抓取</b>；没 root 用<b>补丁版天猫校园</b>。</p>
+        <div class="note">
+          <b>注意：仅仅打开门锁页是不够的。</b>列表接口不下发钥匙，<code class="mono">activationKey</code> 只在
+          <b>点「开锁」那一刻</b>才由页面传给原生层 —— 所以第一次必须真的点一次开锁（门开一下就行）。
+        </div>
 
         <div class="tabs">
-          <input type="radio" name="grab" id="tab-root" checked>
-          <input type="radio" name="grab" id="tab-lsp">
-          <input type="radio" name="grab" id="tab-phone">
+          <input type="radio" name="grab" id="tab-lsp" checked>
+          <input type="radio" name="grab" id="tab-root">
           <input type="radio" name="grab" id="tab-pc">
           <div class="tab-bar">
-            <label for="tab-root">root 一键抓取（推荐）</label>
-            <label for="tab-lsp">方式三 · 补丁版天猫校园</label>
-            <label for="tab-phone">方式一 · 手机 App 抓取</label>
-            <label for="tab-pc">方式二 · 电脑 adb 抓取</label>
+            <label for="tab-lsp">补丁版天猫校园（免 root，推荐）</label>
+            <label for="tab-root">root 一键抓取</label>
+            <label for="tab-pc">电脑 adb 抓取</label>
+          </div>
+
+          <div class="tab-panel panel-lsp">
+            <p>装一个「补丁版天猫校园」（本页<a href="#download">下载区</a>就有），登录后<b>点一次开锁</b>，
+            钥匙和饮水登录态都会自动同步进 TmallKey。不需要 root、不需要电脑、不需要导出任何文件。</p>
+
+            <h4>① 安装补丁版天猫校园</h4>
+            <p>到本页<a href="#download">「下载安装」</a>区下载「天猫校园 · LSPatch 补丁版」并安装
+            （国内直连慢就用下载区的镜像）。它与官方版<b>同包名、只能装一个</b>：如果手机里已装官方版，
+            需要先卸载（登录态会重置，补丁版里重新登录一次即可，和平时登录一样）。</p>
+
+            <h4>② 登录，并进「门锁」页</h4>
+            <ol>
+              <li>打开补丁版天猫校园，用<b>手机号 + 验证码</b>登录（与官方版同一账号）；</li>
+              <li>进入「门锁」页，等锁的列表刷出来。</li>
+            </ol>
+
+            <h4>③ 在门口点一次「开锁」</h4>
+            <p>这一步<b>不能省</b>：钥匙只在点开锁的瞬间才从页面传到原生层。
+            门开一下就好，之后就不用再碰天猫校园了。</p>
+
+            <h4>④ 回到 TmallKey，锁已经在了</h4>
+            <p>切回 TmallKey 的「门锁」页，新锁会<b>自动出现</b>（默认名「门锁 + MAC 尾号」，可改名）。
+            点一下卡片上的「开锁」就能验证：钥匙是离线 BLE 静态数据，一次导入永久有效。</p>
+
+            <h4>⑤ 顺手把饮水也打通</h4>
+            <p>补丁版登录时会把校园会话（<code class="mono">.confong.cn</code> 的 cookie2）一起带过来，
+            TmallKey 的「饮水」页会自动同步登录态，扫码接水不需要额外操作。</p>
           </div>
 
           <div class="tab-panel panel-root">
             <p>手机已 root（KernelSU / Magisk）时的最短路径：<b>一次抓齐门锁钥匙和饮水登录态</b>。
-            不需要 Shizuku、不需要电脑、不需要补丁版。</p>
+            不需要电脑、不需要换掉官方天猫校园。</p>
 
             <h4>① 在 root 管理器里允许 TmallKey</h4>
             <p>打开 KernelSU / Magisk → 超级用户 → 给 TmallKey 授权。
@@ -467,68 +498,8 @@ footer{border-top:1px solid var(--border); padding:36px 0 46px; font-size:13px; 
             然后回到 TmallKey 再点一次「root 抓取」。</p>
           </div>
 
-          <div class="tab-panel panel-lsp">
-            <p>装一个「补丁版天猫校园」（本页<a href="#download">下载区</a>就有），
-            登录后<b>点一次开锁</b>，TmallKey 就会自动把这把锁的凭证收进来。
-            不需要 Shizuku、不需要电脑、不需要 root。</p>
-
-            <h4>① 安装补丁版天猫校园</h4>
-            <p>到本页<a href="#download">「下载安装」</a>区下载「天猫校园 · LSPatch 补丁版」并安装。
-            它与官方版<b>同包名、只能装一个</b>：如果手机里已装官方版，需要先卸载
-            （登录态会重置，补丁版里重新登录一次即可，和平时登录一样）。</p>
-
-            <h4>② 登录并点一次开锁</h4>
-            <ol>
-              <li>打开补丁版天猫校园，用<b>手机号 + 验证码</b>登录（与官方版同一账号）；</li>
-              <li>进入门锁页，<b>正常点一次「开锁」</b>，等门真的打开。</li>
-            </ol>
-
-            <h4>③ 回到 TmallKey，门锁已在列表里</h4>
-            <p>切到 TmallKey 的门锁页，新锁会<b>自动出现在列表顶部</b>（可在编辑里改名）。</p>
-
-            <h4>④ 开锁没反应？检查抓到了没有</h4>
-            <p>手机开 USB 调试连电脑，双击运行 <a href="tmxy_check.bat" download><code class="mono">tmxy_check.bat</code></a>，
-            它会读出模块日志并判别你的锁类型（VOC / MV）。把输出发给开发者即可获得进一步帮助。</p>
-          </div>
-
-          <div class="tab-panel panel-phone">
-            <p><b>不需要电脑。</b>（ColorOS 16 中文语言下关闭了「禁止权限监控」，需要先把系统语言切成英文，不推荐）</p>
-
-            <h4>① 装好 Shizuku 并让它运行起来</h4>
-            <p>从 <a href="https://shizuku.rikka.app/" rel="noopener">Shizuku 官网</a>或 <a href="https://github.com/RikkaApps/Shizuku/releases" rel="noopener">GitHub Releases</a> 安装 Shizuku，再按你的设备情况启动它：</p>
-            <ul>
-              <li><b>无线调试（免 root，Android 11+）</b>—— 推荐：打开「开发者选项」→「无线调试」→ 点「使用配对码配对设备」记下 6 位配对码，回到 Shizuku 点「通过无线调试启动」，按通知栏提示填入配对码。（不会打开开发者模式可以搜索教程）</li>
-              <li><b>Root</b>—— 若设备已 root，直接在 Shizuku 里点「通过 root 启动」。</li>
-            </ul>
-            <p>Shizuku 首页显示「正在运行」才算成功。<b>重启手机后 Shizuku 会停止，需要重新启动一次。</b></p>
-
-            <h4>② 在 TmallKey 里开始抓取</h4>
-            <ol>
-              <li>安装并打开 TmallKey；</li>
-              <li>点「<b>+ 添加门锁凭证</b>」，面板顶部就是「<b>自动抓取钥匙站</b>」；</li>
-              <li>点「<b>开始抓取</b>」；</li>
-              <li>第一次会弹出 Shizuku 授权框 —— 勾选「始终允许」并确定；</li>
-              <li>授权后<b>再点一次「开始抓取」</b>。</li>
-            </ol>
-            <p>此时界面会显示「正在后台监听日志」，最长监听 <b>4 分钟</b>，命中会立刻结束。</p>
-
-            <h4>③ 去开一次门</h4>
-            <ol>
-              <li>保持 TmallKey 在后台（<b>别从最近任务里划掉它</b>）；</li>
-              <li>切到天猫校园，走到门附近；</li>
-              <li>正常点一次「开锁」，等门真的打开。</li>
-            </ol>
-
-            <h4>④ 回到 TmallKey，保存</h4>
-            <p>切回 TmallKey，表单会自动填入，确认后点「<b>保存</b>」。</p>
-            <div class="note">
-              抓取中切走时 App 会被系统冻结，这是正常的。TmallKey 在服务端做了「命中即落盘」——
-              只要门开过一次，回到 App 就会立刻取回结果，界面短暂停在「抓取中」不用管。
-            </div>
-          </div>
-
           <div class="tab-panel panel-pc">
-            <p><b>适合没装 Shizuku、或手机端一直抓不到的情况。</b></p>
+            <p><b>适合排障：</b>没有 root、也不想换掉官方天猫校园时，用电脑直接抓 logcat 读钥匙。</p>
 
             <h4>① 准备</h4>
             <ol>
@@ -579,14 +550,14 @@ macAddress    : AA:BB:CC:DD:EE:FF</code></pre>
         <h4>方式怎么选</h4>
         <div class="tbl-wrap">
           <table class="tbl">
-            <thead><tr><th></th><th>root 一键抓取</th><th>方式一 · 手机 App</th><th>方式二 · 电脑 adb</th></tr></thead>
+            <thead><tr><th></th><th>补丁版天猫校园（免 root）</th><th>root 一键抓取</th><th>电脑 adb</th></tr></thead>
             <tbody>
               <tr><th>需要电脑</th><td>否</td><td>否</td><td>是</td></tr>
-              <tr><th>需要 root</th><td><b>是</b></td><td>否</td><td>否</td></tr>
-              <tr><th>需要 Shizuku</th><td>否</td><td><b>是</b>（并保持运行）</td><td>否</td></tr>
-              <tr><th>同时拿饮水登录态</th><td><b>是</b></td><td>否</td><td>否</td></tr>
-              <tr><th>主要风险</th><td>需在 root 管理器里授权 TmallKey</td><td>系统后台冻结导致结果延迟显示或抓取不到</td><td>安装驱动、网络访问较慢</td></tr>
-              <tr><th>适用</th><td>已 root 的手机（推荐）</td><td>会用 Shizuku</td><td>排障、或前两种都不行</td></tr>
+              <tr><th>需要 root</th><td>否</td><td><b>是</b></td><td>否</td></tr>
+              <tr><th>需要换掉官方天猫校园</th><td><b>是</b>（同包名，二选一）</td><td>否</td><td>否</td></tr>
+              <tr><th>同时拿饮水登录态</th><td><b>是</b>（登录即带过来）</td><td><b>是</b></td><td>否</td></tr>
+              <tr><th>主要风险</th><td>官方版与补丁版只能装一个</td><td>需在 root 管理器里授权 TmallKey</td><td>装驱动、系统日志策略差异</td></tr>
+              <tr><th>适用</th><td>绝大多数用户（推荐）</td><td>已 root 的手机</td><td>排障</td></tr>
             </tbody>
           </table>
         </div>
@@ -607,7 +578,8 @@ macAddress    : AA:BB:CC:DD:EE:FF</code></pre>
   ]
 }</code></pre>
         <ul>
-          <li><b>自动抓取</b>—— 见上面「方式一」，抓到后会自动填进表单，再点「保存」。</li>
+          <li><b>自动同步</b>—— 补丁版天猫校园里点一次开锁后，钥匙会自动出现在列表里，不用手动导入；
+              root 抓取则会把钥匙填进表单，确认后点「保存」。</li>
         </ul>
         <p>凭证保存在本机 Android Keystore 的加密区。</p>
 
@@ -623,24 +595,24 @@ macAddress    : AA:BB:CC:DD:EE:FF</code></pre>
         <h3>抓不到凭证？按这个顺序排查</h3>
         <p><b>先确认一件事：天猫校园这次开锁到底有没有成功？</b>门必须真的开了才有日志可抓，先别急着怀疑 TmallKey。</p>
 
-        <h4>方式一（手机）</h4>
+        <h4>补丁版：回到 App 没看到门锁</h4>
         <div class="tbl-wrap">
           <table class="tbl">
             <thead><tr><th>现象</th><th>检查</th></tr></thead>
             <tbody>
-              <tr><td>提示「Shizuku 未运行」</td><td>Shizuku App 是否显示「正在运行」；重启手机后需要重新启动 Shizuku</td></tr>
-              <tr><td>停在「正在后台监听」不动</td><td>是否已经点过「开始抓取」<b>之后</b>才去开的门（抓取会先清空日志缓冲）</td></tr>
-              <tr><td>一直抓不到</td><td>天猫校园是否真的完成了开锁；地址是否填对；换电脑 adb 方式交叉验证</td></tr>
-              <tr><td>抓到钥匙但没地址</td><td>日志里只有 key 没有 mac，手工填地址即可</td></tr>
-              <tr><td>长时间无结果</td><td>4 分钟后会自动结束并给出诊断信息</td></tr>
+              <tr><td>打开过门锁页，但列表里没有新锁</td><td>只打开页面不够 —— 必须真的<b>点一次「开锁」</b>，钥匙才会传给原生层</td></tr>
+              <tr><td>点过开锁还是没有</td><td>确认装的是<b>补丁版</b>（不是官方版）；官方版没有同步模块</td></tr>
+              <tr><td>补丁版里开锁失败</td><td>先在补丁版里把门打开一次（蓝牙权限、锁电量、距离都要正常）</td></tr>
+              <tr><td>切回 TmallKey 后要等几秒</td><td>同步发生在 TmallKey 回到前台时，通常 1～3 秒内出现</td></tr>
+              <tr><td>饮水页提示没有登录态</td><td>补丁版里重新登录一次（登录会重签校园会话），再回饮水页点导入</td></tr>
             </tbody>
           </table>
         </div>
-        <p>诊断信息：</p>
-        <pre><code>adb logcat -s fkTM:D                                  # App 侧抓取日志
-adb shell cat /data/local/tmp/fktm_grab_diag.txt      # 服务端进度（需 shell/root）</code></pre>
+        <p>还是不行就把诊断信息发给开发者：</p>
+        <pre><code>adb shell su -c "cat /data/data/com.fktm.app/files/water_diag.txt"   # 需 root
+adb shell su -c "cat /data/data/com.tmall.campus.and/files/tmxydump_probe.log"  # 模块侧</code></pre>
 
-        <h4>方式二（电脑）</h4>
+        <h4>电脑 adb 抓取</h4>
         <div class="tbl-wrap">
           <table class="tbl">
             <thead><tr><th>现象</th><th>检查</th></tr></thead>
@@ -669,7 +641,7 @@ adb shell cat /data/local/tmp/fktm_grab_diag.txt      # 服务端进度（需 sh
         <summary>这和天猫校园是什么关系？会封号吗？</summary>
         <div class="ans">
           <p>没有任何代码关系。它不调用天猫校园，也不读取它的进程，只是把 BLE 开锁报文按字节复刻了一遍。开锁时手机直接和门锁通信，服务器完全不知情。</p>
-          <p>「拿凭证」那一步只是趁天猫校园自己开锁时，从它自己打印的日志里把它已经下发给你的钥匙取出来 —— 钥匙本来就是你自己的。</p>
+          <p>「拿凭证」那一步只是趁天猫校园自己开锁时，把它已经下发给页面的钥匙取出来 —— 钥匙本来就是你自己的，只是原来没有别的地方能看到它。</p>
         </div>
       </details>
 
