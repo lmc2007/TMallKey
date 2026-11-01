@@ -2,7 +2,16 @@
   "channel": "stable",
   "versionName": "2.1.3",
   "versionCode": 14,
-  "isReady": false,
+  "isReady": true,
   "releaseNotes": "CM 会话验收工具 cmcheck + mtop 支持 POST 形态",
-  "assets": []
+  "releaseUrl": "https://github.com/lmc2007/TMallKey/releases/tag/v2.1.3",
+  "assets": [
+    {
+      "type": "universal-apk",
+      "platform": "android",
+      "url": "https://github.com/lmc2007/TMallKey/releases/download/v2.1.3/TMKey-2.1.3.apk",
+      "sha256": "94e4c9628a6fd37b2d59b43de64b958842c7255227b72b4d3b9f0ba7f2ee310a",
+      "size": 2544226
+    }
+  ]
 }
