@@ -1,0 +1,38 @@
+# v2.1.3
+
+新增：
+- CM 会话验收工具 cmcheck + mtop 支持 POST 形态
+- 门锁免 root 自动同步 + MV 在线锁适配，移除 Shizuku 抓取
+- A 路线结论 —— wua 不是门槛，客户端形态才是
+- 参考 Kaltsit 项目打通 PC 端 h5 签名链路 + property hook（wua 仍 69）
+- ★ 真机 wua=197 字符 vs unidbg=69 —— 量化差距定位
+- ★ 真机 frida hook 打通，拿到 10401 基准
+- Build 对齐真机（OnePlus PKR110/Android16/serialno dfe6d8a8）+ 608 生成点定位
+- wua 常驻服务（WuaServer）+ 文档补齐
+- 接入 middletier(getSecurityFactors) + 补 IOResolver；诊断 608/2403
+- wua 命令行 + 服务端验证工具
+- ★ wua 打通 —— 10102 是插件登记命令（9904 根因）
+- 路线② Java 全链路打通（main/body 插件加载 + loadLibrary/native 桥）
+- sg-java 编译通过（154 class）+ loadLibrary 钩子
+- P1 定路线② —— 在宿主 JVM 跑 SG Java 编排层
+- P1 unidbg harness —— SG native 加载/JNI_OnLoad/initialize 跑通
+
+修复：
+- 四条关键修正 —— appKey 34270422 / wua 69 字符正常 / middletier 入口 / AVMP 未注册
+- 按参考文章修正 70102 —— 9 参数格式 + so 路径改 Android 形式
+- 包名纠正 + Android 路径/asset/相对路径三处修复；608 定位到安全图片
+
+更改：
+- 教程改按补丁版为主路径，移除 Shizuku 与方式编号
+- P1 立项提示词（新会话交接用）
+- PLAN-reverse 更新 —— MV 闭环完成（用户确认），取消版本监控（7.0+ 时代 5.0 仍可用）
+- 新增逆向路线计划（现状/封死路线/unidbg 备案触发条件/原则）
+
+其他：
+- SG 探针、CM 会话验证与抓包脚本
+- 197 vs 69 再排三项（真证书/新 SG 数据/插件自读），仍未解决
+- 静态啃到 doCommandNative 分发器 + 确认 hook 在 unicorn2 不回调
+- frida hook 脚本（设备有反调试，暂未生效）
+- 608 四个假设全部排除（Build/INPUT/预热/时序），默认关闭等待
+- 清掉误入库的 JVM 崩溃日志
+- 忽略 reverse/**/target

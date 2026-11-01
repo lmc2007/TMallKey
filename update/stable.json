@@ -1,17 +1,8 @@
 {
   "channel": "stable",
-  "versionName": "2.1.2",
-  "versionCode": 13,
-  "isReady": true,
-  "releaseNotes": "修复竞态 —— close() 的迟到清理块会清空重连后的新 gatt",
-  "releaseUrl": "https://github.com/lmc2007/TMallKey/releases/tag/v2.1.2",
-  "assets": [
-    {
-      "type": "universal-apk",
-      "platform": "android",
-      "url": "https://github.com/lmc2007/TMallKey/releases/download/v2.1.2/TMKey-2.1.2.apk",
-      "sha256": "a8da641e3bd09bec5ac05a1fedb3fe200dd24596933db19e5c31cbd16dca8052",
-      "size": 2544410
-    }
-  ]
+  "versionName": "2.1.3",
+  "versionCode": 14,
+  "isReady": false,
+  "releaseNotes": "CM 会话验收工具 cmcheck + mtop 支持 POST 形态",
+  "assets": []
 }
