@@ -126,6 +126,20 @@ def dumps(data: Any) -> str:
     return json.dumps(data, separators=(",", ":"), ensure_ascii=False)
 
 
+#: CM 身份所在的域（2026-11-01 实测：`.confong.cn` 的 cookie2 一条即可）
+CONFONG_DOMAIN = "confong.cn"
+
+
+def _is_confong_scoped(set_cookie: str) -> bool:
+    """这条 Set-Cookie 是不是 confong 域下发的（`Domain=.confong.cn`）。"""
+    low = set_cookie.lower()
+    idx = low.find("domain=")
+    if idx < 0:
+        return False
+    rest = low[idx + len("domain="):].split(";", 1)[0].strip()
+    return rest.lstrip(".") == CONFONG_DOMAIN
+
+
 # --------------------------------------------------------------------------
 # Cookie 容器
 # --------------------------------------------------------------------------
@@ -143,15 +157,24 @@ class Cookies:
         return "; ".join(f"{k}={v}" for k, v in self.jar.items())
 
     def update_from_set_cookie(self, headers: list[str]) -> list[str]:
-        """吸收响应里的 Set-Cookie，返回被更新的 cookie 名（便于打日志）。"""
+        """吸收响应里的 Set-Cookie，返回被更新的 cookie 名（便于打日志）。
+
+        ⚠ `cookie2` 是**多域**的：`.taobao.com` 和 `.confong.cn` 各有一条，
+        而 CM 身份只认 confong 那条。mtop 响应几乎每个都带 `Set-Cookie: cookie2=…;
+        Domain=.taobao.com`，直接照单全收会把 CM 会话顶掉（症状：调用几次之后
+        突然「用户未登录」）。所以 cookie2 只接受 confong 域下发的。
+        """
         changed: list[str] = []
         for h in headers:
             first = h.split(";", 1)[0]
             if "=" not in first:
                 continue
             k, v = first.split("=", 1)
-            k = k.strip()
+            k, v = k.strip(), v.strip()
             if not k:
+                continue
+            # 已有一条 cookie2 时，只允许 confong 域把它换掉；jar 里还没有就直接收
+            if (k == "cookie2" and k in self.jar and not _is_confong_scoped(h)):
                 continue
             if self.jar.get(k) != v:
                 self.jar[k] = v
@@ -186,12 +209,13 @@ class MtopClient:
     max_retry: int = 2
 
     def build_url(self, api: str, data: Any, ver: str = "1.0",
-                  t: str | None = None, token: str | None = None) -> tuple[str, str]:
+                  t: str | None = None, token: str | None = None,
+                  post: bool = False) -> tuple[str, str]:
         """构造 URL，返回 (url, 实际用的 data 字符串)。"""
         payload = dumps(data)
         ts = t or str(int(time.time() * 1000))
         tk = self.cookies.token if token is None else token
-        query = urllib.parse.urlencode({
+        query = {
             "jsv": "2.7.2",
             "appKey": self.app_key,
             "t": ts,
@@ -200,12 +224,13 @@ class MtopClient:
             "v": ver,
             "type": "originaljson",
             "dataType": "json",
-            "data": payload,
-        })
-        return f"{GATEWAY.format(api=api, ver=ver)}?{query}", payload
+        }
+        if not post:
+            query["data"] = payload          # GET：data 放 query
+        return f"{GATEWAY.format(api=api, ver=ver)}?{urllib.parse.urlencode(query)}", payload
 
     def call(self, api: str, data: Any = None, ver: str = "1.0",
-             retry: bool | None = None, opener=None) -> dict:
+             retry: bool | None = None, opener=None, post: bool = False) -> dict:
         """调用一个 mtop 接口，成功返回原始响应 dict，失败抛 MtopError。"""
         if data is None:
             data = {}
@@ -213,8 +238,8 @@ class MtopClient:
         last: MtopError | None = None
 
         for attempt in range(allow + 1):
-            url, _ = self.build_url(api, data, ver)
-            payload, set_cookies = self._http(url, opener=opener)
+            url, body = self.build_url(api, data, ver, post=post)
+            payload, set_cookies = self._http(url, opener=opener, body=body if post else None)
             self.cookies.update_from_set_cookie(set_cookies)
 
             ret = payload.get("ret") or []
@@ -232,14 +257,20 @@ class MtopClient:
 
     # -- 传输 ------------------------------------------------------------
 
-    def _http(self, url: str, opener=None) -> tuple[dict, list[str]]:
-        req = urllib.request.Request(url, headers={
+    def _http(self, url: str, opener=None, body: str | None = None) -> tuple[dict, list[str]]:
+        headers = {
             "User-Agent": "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 "
                           "(KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
             "Referer": "https://share.confong.cn/",
             "Cookie": self.cookies.header(),
             "Accept": "application/json",
-        })
+        }
+        data = None
+        if body is not None:
+            # mtop 的 POST 形态：data 走 body（form 编码），其余仍在 query
+            data = urllib.parse.urlencode({"data": body}).encode()
+            headers["Content-Type"] = "application/x-www-form-urlencoded;charset=UTF-8"
+        req = urllib.request.Request(url, data=data, headers=headers)
         op = opener or urllib.request.build_opener()
         try:
             with op.open(req, timeout=self.timeout) as r:

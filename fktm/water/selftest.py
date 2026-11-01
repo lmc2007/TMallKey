@@ -270,11 +270,73 @@ def test_parse_qr():
     eq("qr/空", parse_qr("").valid, False)
 
 
+# --------------------------------------------------------------------------
+# 7. CM 会话：多域 cookie 合并（2026-11-01 的坑）
+# --------------------------------------------------------------------------
+
+def test_cm_merge():
+    import cmcheck as C
+
+    # .taobao.com 的 cookie2 不能覆盖 .confong.cn 的（CM 身份只认后者）
+    jar = C.merge_cookie_rows([
+        (".confong.cn", "cookie2", "cm"),
+        (".confong.cn", "munb", "2223007013759"),
+        (".taobao.com", "cookie2", "tb"),
+        (".taobao.com", "unb", "2209882040940"),
+    ])
+    eq("cm 合并: confong cookie2 胜出", jar["cookie2"], "cm")
+    eq("cm 合并: unb 保留", jar["unb"], "2209882040940")
+    eq("cm 合并: munb 保留", jar["munb"], "2223007013759")
+
+    # 顺序无关
+    eq("cm 合并: 顺序无关(a)", C.merge_cookie_rows([
+        (".taobao.com", "cookie2", "tb"), (".confong.cn", "cookie2", "cm")])["cookie2"], "cm")
+    eq("cm 合并: 顺序无关(b)", C.merge_cookie_rows([
+        (".confong.cn", "cookie2", "cm"), (".taobao.com", "cookie2", "tb")])["cookie2"], "cm")
+
+    # 只有 taobao 时保留原值
+    eq("cm 合并: 只有 taobao", C.merge_cookie_rows(
+        [(".taobao.com", "cookie2", "tb")])["cookie2"], "tb")
+
+    # 空值不覆盖
+    eq("cm 合并: 空值不覆盖", C.merge_cookie_rows([
+        (".confong.cn", "cookie2", "cm"), (".taobao.com", "cookie2", "")])["cookie2"], "cm")
+
+    # 账号 id 优先 munb（confong 侧），其次 unb
+    check("cm 账号: 优先 munb", C.account_id(dict(jar)) == "2223007013759")
+    check("cm 账号: 回退 unb", C.account_id({"unb": "u"}) == "u")
+
+
+def test_cm_absorb():
+    """Set-Cookie 里的 taobao 域 cookie2 不能顶掉 CM 会话（2026-11-01 实测坑）。"""
+    from mtop import Cookies
+
+    jar = Cookies({"cookie2": "cm-value", "_m_h5_tk": "old"})
+    changed = jar.update_from_set_cookie([
+        "cookie2=tb-value;Path=/;Domain=.taobao.com;Max-Age=-1;HttpOnly",
+        "_m_h5_tk=new_123;Path=/;Domain=taobao.com;Max-Age=5400",
+    ])
+    eq("absorb: CM cookie2 未被顶掉", jar.get("cookie2"), "cm-value")
+    eq("absorb: _m_h5_tk 正常吸收", jar.get("_m_h5_tk"), "new_123")
+    check("absorb: 变更列表不含 cookie2", "cookie2" not in changed)
+
+    # jar 里还没有 cookie2 时必须允许写入（应用内登录的首包）
+    jar3 = Cookies({})
+    jar3.update_from_set_cookie(["cookie2=tb-first;Path=/;Domain=.taobao.com"])
+    eq("absorb: 空 jar 允许写入 cookie2", jar3.get("cookie2"), "tb-first")
+
+    # confong 域下发的可以覆盖（会话续期）
+    jar2 = Cookies({"cookie2": "old-cm"})
+    jar2.update_from_set_cookie([
+        "cookie2=new-cm;Path=/;Domain=.confong.cn;Max-Age=-1;HttpOnly"])
+    eq("absorb: confong cookie2 可覆盖", jar2.get("cookie2"), "new-cm")
+
+
 def main() -> int:
     for fn in (
         test_sign, test_token, test_build_url, test_dumps,
         test_cookies, test_errors, test_handshake, test_unwrap,
-        test_parse_qr,
+        test_parse_qr, test_cm_merge, test_cm_absorb,
     ):
         fn()
     total = _passed + len(_failed)
