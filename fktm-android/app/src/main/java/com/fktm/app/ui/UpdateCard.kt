@@ -20,7 +20,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,7 +34,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fktm.app.update.AppUpdateRepository
 import com.fktm.app.update.DownloadMode
-import com.fktm.app.update.LaunchCheckThreshold
 import com.fktm.app.update.UpdateCheckResult
 import com.fktm.app.update.UpdateDownloadState
 import com.fktm.app.update.UpdateRelease
@@ -68,11 +66,6 @@ fun UpdateCard(repo: AppUpdateRepository, settings: UpdateSettings) {
                 checking = false
             }
         }
-    }
-
-    // 启动自动检查：走节流阈值，静默进行
-    LaunchedEffect(Unit) {
-        if (settings.shouldCheckOnLaunch()) runCheck(force = false)
     }
 
     Card(
@@ -297,23 +290,8 @@ private fun DownloadStatusOnly(downloadState: UpdateDownloadState) {
 
 @Composable
 private fun SettingsSection(settings: UpdateSettings, onChanged: () -> Unit) {
-    var threshold by remember { mutableStateOf(settings.launchThreshold) }
     var mode by remember { mutableStateOf(settings.downloadMode) }
 
-    Text("启动时自动检查", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-    Spacer(Modifier.height(6.dp))
-    OptionRow(
-        options = LaunchCheckThreshold.entries.toList(),
-        selected = threshold,
-        labelOf = { it.label },
-        onSelect = {
-            threshold = it
-            settings.launchThreshold = it
-            onChanged()
-        },
-    )
-
-    Spacer(Modifier.height(12.dp))
     Text("APK 下载方式", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     Spacer(Modifier.height(6.dp))
     OptionRow(

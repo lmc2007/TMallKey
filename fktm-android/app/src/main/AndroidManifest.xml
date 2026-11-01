@@ -18,7 +18,7 @@
     <!-- 扫饮水机二维码 -->
     <uses-permission android:name="android.permission.CAMERA" />
     <!-- 抓取期间的前台服务：App 要退到后台，必须靠它把进程顶到前台优先级，
-         否则会被 ColorOS 之类的系统冻结，Shizuku 的 binder 回调直接断掉。 -->
+         否则会被 ColorOS 之类的系统冻结，抓取协程直接被掐停。 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
@@ -88,19 +88,6 @@
             android:name=".credential.GrabForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
-
-        <!--
-          Shizuku：用来以 shell 身份读 logcat，抓取天猫校园下发的 activationKey。
-          Android 4.1+ 普通 App 只能看自己进程的日志，READ_LOGS 又是系统级权限，
-          所以「一键抓凭证」必须借 Shizuku（其本质是免 root 的 adb 通道）。
-        -->
-        <provider
-            android:name="rikka.shizuku.ShizukuProvider"
-            android:authorities="${applicationId}.shizuku"
-            android:multiprocess="false"
-            android:enabled="true"
-            android:exported="true"
-            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
         <!--
           更新用的 FileProvider：把 cache/updates/ 里下好的 APK 以 content:// 交给系统安装器。

@@ -52,14 +52,120 @@ class Hook : IXposedHookLoadPackage {
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val ctx = param.args.getOrNull(0) as? Context ?: return
-                        startDumping(ctx.applicationContext ?: ctx)
+                        appCtx = ctx.applicationContext ?: ctx
+                        startDumping(appCtx ?: ctx)
                         startCookieServer()
                         hookDoorUnlock(lpparam.classLoader)
+                        hookMtopParams(lpparam.classLoader)
+                        hookMtopResult(lpparam.classLoader)
                     }
                 },
             )
         } catch (t: Throwable) {
             XposedBridge.log("[tmxydump] hook attach failed: $t")
+        }
+    }
+
+    // ---------------- mtop 请求探针（定位门锁密钥接口） ----------------
+
+    /** api -> data 的最近一次请求；只留门锁相关的，方便一次性定位下发密钥的接口。 */
+    private val mtopCalls = ConcurrentHashMap<String, String>()
+
+    /** 天猫校园自己的 Context（模块跑在它进程里）。 */
+    @Volatile
+    private var appCtx: Context? = null
+
+    /**
+     * 探针日志落文件。
+     *
+     * 这台 ROM 把第三方 App 的 logcat 全屏蔽了（fkTM 与天猫校园的 Log 都看不到），
+     * 所以只能写文件，再由 PC 侧 `su -c cat` 读。
+     */
+    private fun probeLog(line: String) {
+        runCatching {
+            val ctx = appCtx ?: return
+            val f = java.io.File(ctx.filesDir, "tmxydump_probe.log")
+            if (f.length() > 200_000) f.delete()
+            f.appendText(line + java.lang.System.lineSeparator())
+        }
+    }
+
+    /**
+     * 挂 mtopsdk 的参数构建点。
+     *
+     * H5 的 mtop 调用最终都会走这里，所以能一次拿到 `api` 和 `data`（已序列化的业务参数），
+     * 用来确认「门锁密钥是哪个接口下发的、参数长什么样」。
+     */
+    private fun hookMtopParams(classLoader: ClassLoader) {
+        // H5 的 mtop 调用走 WindVane 的 MtopWVPlugin（不是原生 mtopsdk 那条链），
+        // execute(action, params, callback) 的 params 就是 {api, data, ...} 的明文 JSON。
+        val sigs = listOf(
+            "com.taobao.mtop.wvplugin.MtopWVPlugin",
+        )
+        var hooked = 0
+        for (cls in sigs) {
+            runCatching {
+                XposedHelpers.findAndHookMethod(
+                    cls,
+                    classLoader,
+                    "execute",
+                    String::class.java,
+                    String::class.java,
+                    "android.taobao.windvane.jsbridge.WVCallBackContext",
+                    object : XC_MethodHook() {
+                        override fun beforeHookedMethod(param: MethodHookParam) {
+                            val action = param.args.getOrNull(0) as? String ?: return
+                            val raw = param.args.getOrNull(1) as? String ?: return
+                            if (!raw.contains("door") && !raw.contains("lock")) return
+                            probeLog("wv $action $raw")
+                        }
+                    },
+                )
+                hooked++
+                probeLog("MtopWVPlugin hooked")
+            }.onFailure {
+                probeLog("MtopWVPlugin NOT hooked: ${it.javaClass.simpleName}: ${it.message}")
+            }
+        }
+        if (hooked == 0) probeLog("MtopWVPlugin: 0 hooks installed")
+    }
+
+    /**
+     * 抓 mtop 的**响应体**。
+     *
+     * 门锁列表 `guide.door.lock.user.get` 的响应里有没有 `secretKey` 决定了
+     * 「打开门锁页就能拿到钥匙」还是「必须点一次开锁」—— 目前只能靠实测确认。
+     *
+     * `MtopWVPlugin.wvCallback(MtopResult)` 是 H5 mtop 所有响应的统一落点，
+     * `MtopResult.dataString` 就是 data 的 JSON 原文。
+     */
+    private fun hookMtopResult(classLoader: ClassLoader) {
+        runCatching {
+            XposedHelpers.findAndHookMethod(
+                "com.taobao.mtop.wvplugin.MtopWVPlugin",
+                classLoader,
+                "wvCallback",
+                "com.taobao.mtop.wvplugin.MtopResult",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val r = param.args.getOrNull(0) ?: return
+                        val data = runCatching {
+                            XposedHelpers.getObjectField(r, "dataString") as? String
+                        }.getOrNull() ?: return
+                        val ok = runCatching {
+                            XposedHelpers.getBooleanField(r, "success")
+                        }.getOrDefault(false)
+                        // 只留门锁相关的，别把整页响应都写进文件
+                        if (!data.contains("secretKey") && !data.contains("macId") &&
+                            !data.contains("deviceInfo") && !data.contains("lock")
+                        ) return
+                        probeLog("mtopResp ok=$ok len=${data.length} ${data.take(2000)}")
+                    }
+                },
+            )
+            probeLog("MtopResult hooked")
+        }.onFailure {
+            probeLog("MtopResult NOT hooked: ${it.javaClass.simpleName}: ${it.message}")
         }
     }
 
@@ -70,6 +176,16 @@ class Hook : IXposedHookLoadPackage {
 
     /** MV 锁（动态 syncData）：抓到即证明该用户的锁是 MV 型而非 VOC。 */
     private val mvLocks = ConcurrentHashMap<String, String>()
+
+    /** 上一次成功推给 fkTM 的整包内容（cookie 或门锁变了才重推）。 */
+    @Volatile
+    private var lastPushed: String = ""
+
+    /** 抓到一个新门锁后，1.2 秒内合并推送一次，不用等下一个 tick。 */
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    @Volatile
+    private var flushScheduled = false
 
     private fun hookDoorUnlock(classLoader: ClassLoader) {
         // V1 和 V2 的 unlock 签名完全一致：unlock(Context, JSBParams, UnlockCallback)。
@@ -95,15 +211,18 @@ class Hook : IXposedHookLoadPackage {
                             val key = XposedHelpers.callMethod(jsb, "getActivationKey") as? String ?: return
                             if (mac.isBlank() || key.isBlank()) return
                             doorLocks[mac] = key
+                            scheduleFlush()
+                            probeLog("doorlock $cls mac=$mac keyLen=${key.length}")
                             XposedBridge.log("[tmxydump] doorlock captured ($cls) mac=$mac keyLen=${key.length}")
                         }
                     },
                 )
                 hooked++
+                probeLog("$cls.unlock hooked")
                 XposedBridge.log("[tmxydump] $cls.unlock hooked")
             } catch (t: Throwable) {
                 // 类不存在 = 该版本没有这个实现，正常；把情况记下来便于排障
-                XposedBridge.log("[tmxydump] $cls not hooked: ${t.message}")
+                probeLog("$cls NOT hooked: ${t.javaClass.simpleName}: ${t.message}")
             }
         }
         if (hooked == 0) {
@@ -131,13 +250,18 @@ class Hook : IXposedHookLoadPackage {
                             val obj = JSONObject(raw)
                             val mac = obj.optString("macAddress")
                             val sync = obj.optString("syncData")
-                            if (mac.isNotBlank() && sync.isNotBlank()) {
+                            if (mac.isNotBlank()) {
+                                // syncData 为空也记 MAC：fkTM 只需要知道「这把是 MV 锁」，
+                                // 开锁帧它自己用会话现取（服务端一次一密，缓存没用）
                                 mvLocks[mac] = sync
+                                probeLog("mvlock mac=$mac syncLen=${sync.length}")
+                                scheduleFlush()
                             }
                         }
                     }
                 },
             )
+            probeLog("ZMUnlockJsBridge.unlock hooked")
             XposedBridge.log("[tmxydump] ZMUnlockJsBridge.unlock hooked")
         } catch (t: Throwable) {
             XposedBridge.log("[tmxydump] ZMUnlockJsBridge not hooked: ${t.message}")
@@ -148,23 +272,66 @@ class Hook : IXposedHookLoadPackage {
 
     private fun startDumping(ctx: Context) {
         val handler = Handler(Looper.getMainLooper())
-        var last = ""
+
+        var tickCount = 0
 
         fun tick(fast: Int) {
-            val json = dumpCookies() ?: run {
-                handler.postDelayed({ tick(fast) }, if (fast > 0) INTERVAL_MS else SLOW_MS)
-                return
-            }
-            if (json != last) {
-                if (deliver(ctx, json)) {
-                    last = json            // 只有真正送出去才记住，失败下轮重试
+            // 整轮包 try/catch：以前这里抛一次异常整条定时链就断了，且没有任何痕迹
+            try {
+                tickCount++
+                val json = buildPushPayload()
+                if (json == null) {
+                    if (tickCount <= 3 || tickCount % 10 == 0) {
+                        probeLog("tick#$tickCount no cookies (unb/munb 为空或 CookieManager 未就绪)")
+                    }
+                } else if (json == lastPushed) {
+                    if (tickCount <= 3) probeLog("tick#$tickCount 内容未变，跳过")
+                } else if (deliver(ctx, json)) {
+                    lastPushed = json      // 只有真正送出去才记住，失败下轮重试
+                    probeLog("tick#$tickCount delivered len=${json.length}")
+                } else {
+                    probeLog("tick#$tickCount deliver FAILED len=${json.length}")
                 }
+            } catch (t: Throwable) {
+                probeLog("tick error: ${t.javaClass.simpleName}: ${t.message}")
             }
             // 前 5 分钟 20 秒一次，之后降为 60 秒一次，进程活着就一直导
             handler.postDelayed({ tick(maxOf(fast - 1, 0)) }, if (fast > 0) INTERVAL_MS else SLOW_MS)
         }
 
         handler.postDelayed({ tick(TICK_COUNT) }, START_DELAY_MS)
+    }
+
+    /**
+     * 推送用的整包：`{cookies, doorlocks, mvlocks}`。
+     *
+     * 以前 tick 只推 cookie，门锁只能在 fkTM 回来点开饮水页时通过 Socket 拉 ——
+     * 用户「打开一次天猫校园」就再也拿不到门锁。改成整包后，
+     * 抓到门锁的那一轮推送就会把钥匙一起带过去。
+     */
+    private fun buildPushPayload(): String? {
+        val env = buildEnvelope()
+        return if (env == "null") null else env
+    }
+
+    /**
+     * 抓到新门锁 / MV 锁后立刻安排一次推送。
+     *
+     * 门锁是在「打开门锁页」那一刻才出现在内存里的，而用户通常紧接着就切走，
+     * 等 20 秒的 tick 会错过。这里 1.2 秒后合并推一次。
+     */
+    private fun scheduleFlush() {
+        if (flushScheduled) return
+        flushScheduled = true
+        mainHandler.postDelayed({
+            flushScheduled = false
+            val ctx = appCtx ?: return@postDelayed
+            val json = buildPushPayload() ?: return@postDelayed
+            if (json != lastPushed && deliver(ctx, json)) {
+                lastPushed = json
+                probeLog("flush delivered len=${json.length} doorlocks=${doorLocks.size} mv=${mvLocks.size}")
+            }
+        }, 1_200L)
     }
 
     /** 读各个域下的 cookie，拼成 JSON；没有登录态就返回 null。 */
@@ -179,14 +346,21 @@ class Hook : IXposedHookLoadPackage {
     /** cookie map；没登录（无 unb/munb）返回 null。 */
     private fun dumpCookieMap(cm: CookieManager): Map<String, String>? {
         val jar = linkedMapOf<String, String>()
+        // cookie2 有多条（.taobao.com 与 .confong.cn），CM 身份只认 confong 那条，
+        // 所以单独记下来最后写，避免被后面的 taobao 域覆盖。
+        var confongCookie2: String? = null
         for (u in HOSTS) {
             val raw = runCatching { cm.getCookie(u) }.getOrNull() ?: continue
+            val isConfong = u.contains("confong", ignoreCase = true)
             for (part in raw.split(';')) {
                 val k = part.substringBefore('=', "").trim()
                 if (k.isEmpty()) continue
-                jar[k] = part.substringAfter('=', "").trim()
+                val v = part.substringAfter('=', "").trim()
+                if (k == "cookie2" && isConfong) confongCookie2 = v
+                jar[k] = v
             }
         }
+        confongCookie2?.let { jar["cookie2"] = it }
         // 没登录就别发（匿名也有 cookie2，容易误判）
         if (jar["unb"].isNullOrBlank() && jar["munb"].isNullOrBlank()) return null
         return jar

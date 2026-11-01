@@ -26,7 +26,7 @@ import com.fktm.app.R
  *
  * 冻结之后整条抓取链路一起停摆：
  *  · App 里的协程被掐停 —— 连 `withTimeoutOrNull` 的计时器都不走；
- *  · Shizuku 的 binder 回调无处投递，`grab()` 的返回值永远回不来；
+ *  · 抓取用的 su / logcat 子进程与它的读取协程一起被挂起；
  *  · 实测就是「点开始抓取 → 切天猫校园 → 开门 → 切回来还是没抓到」。
  *
  * 起一个前台服务把进程抬到 foreground 优先级，系统就不会冻结它。

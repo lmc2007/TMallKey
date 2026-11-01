@@ -57,6 +57,28 @@ object UpdateSources {
      *
      * 与「检查更新」用的镜像列表是两回事 —— 这里的节点只做下载加速。
      */
+    /**
+     * 补丁版天猫校园的资产名。
+     *
+     * 发布流水线固定产出这个名字（见 `.github/workflows/release.yml` 的
+     * 「Patch 天猫校园」步骤），每次发版都挂在同一个 release 下。
+     */
+    const val LSPATCH_ASSET = "tmcampus-5.0.0-lspatched.apk"
+
+    /** Releases 最新页（App 本体与补丁版都在这里）。 */
+    const val RELEASES_LATEST_URL = "https://github.com/lmc2007/TMallKey/releases/latest"
+
+    /**
+     * 补丁版直连地址。
+     *
+     * `releases/latest/download/<asset>` 由 GitHub 解析到最新 release，
+     * 所以发新版本后这里不用改。
+     */
+    val LSPATCH_DIRECT_URL: String get() = "$RELEASES_LATEST_URL/download/$LSPATCH_ASSET"
+
+    /** 补丁版镜像地址：复用下载加速前缀。 */
+    fun lspatchMirrorUrl(proxy: String): String = proxy + LSPATCH_DIRECT_URL
+
     val DOWNLOAD_PROXIES = listOf(
         "https://gh-proxy.com/",
         "https://ghproxy.net/",

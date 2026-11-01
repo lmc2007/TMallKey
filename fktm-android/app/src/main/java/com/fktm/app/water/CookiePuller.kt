@@ -4,7 +4,6 @@ import android.util.Log
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
-import org.json.JSONObject
 
 /**
  * 从（LSPatch 补丁过的）天猫校园进程里**拉**数据。
@@ -30,10 +29,11 @@ object CookiePuller {
     private const val PORT = 42741
     private const val TOKEN = "fktm-cookie-pull-v1"
 
-    /** 一把从天猫校园抓到的门锁凭证。 */
-    data class DoorLock(val mac: String, val activationKey: String)
-
-    data class PullResult(val cookies: Map<String, String>, val doorlocks: List<DoorLock>)
+    data class PullResult(
+        val cookies: Map<String, String>,
+        val doorlocks: List<ModuleEnvelope.DoorLock>,
+        val mvLocks: List<ModuleEnvelope.MvLock> = emptyList(),
+    )
 
     /**
      * 尝试拉取一次。阻塞调用，请在 IO 线程执行。
@@ -51,26 +51,10 @@ object CookiePuller {
             val line = s.getInputStream().bufferedReader().readLine()?.trim().orEmpty()
             if (!line.startsWith("{")) return@runCatching null
 
-            val obj = JSONObject(line)
-            // 兼容两种格式：新协议 {cookies:{...}, doorlocks:[...]}；旧协议直接是 cookie map
-            val cookiesJson = obj.optJSONObject("cookies") ?: obj
-            val map = linkedMapOf<String, String>()
-            cookiesJson.keys().forEach { k ->
-                val v = cookiesJson.optString(k)
-                if (v.isNotBlank()) map[k] = v
-            }
-            if (WaterSession.accountId(map).isBlank()) return@runCatching null
+            val env = ModuleEnvelope.parse(line) ?: return@runCatching null
+            if (WaterSession.accountId(env.cookies).isBlank()) return@runCatching null
 
-            val doorlocks = obj.optJSONArray("doorlocks")?.let { arr ->
-                (0 until arr.length()).mapNotNull { i ->
-                    val o = arr.optJSONObject(i) ?: return@mapNotNull null
-                    val mac = o.optString("mac")
-                    val key = o.optString("activationKey")
-                    if (mac.isBlank() || key.isBlank()) null else DoorLock(mac, key)
-                }
-            }.orEmpty()
-
-            PullResult(map, doorlocks)
+            PullResult(env.cookies, env.doorlocks, env.mvLocks)
         }
     }.getOrElse { e ->
         Log.d(TAG, "cookie pull: ${e.javaClass.simpleName}")

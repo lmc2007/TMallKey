@@ -10,7 +10,7 @@ import androidx.core.content.ContextCompat
  * 通知权限（`POST_NOTIFICATIONS`）。
  *
  * 「常驻后台」靠的是前台服务（`GrabForegroundService`）—— 抓取期间 TmallKey 必须留在后台，
- * 否则会被 ColorOS 冻结、Shizuku 的 binder 回调直接断掉（已真机复现）。
+ * 否则会被 ColorOS 冻结、抓取协程直接被掐停（已真机复现）。
  *
  * Android 13（API 33）起通知变成**运行时权限**：没有它前台服务照样能起来，
  * 但那条常驻通知不会显示 —— 用户既看不到「正在抓取」的进度，

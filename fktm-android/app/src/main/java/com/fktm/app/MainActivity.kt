@@ -15,6 +15,17 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import com.fktm.app.update.UpdateCheckResult
+import com.fktm.app.ui.UpdatePromptDialog
+import com.fktm.app.ui.AboutScreen
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -59,10 +70,28 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        val app = application as FktmApp
+        val repo = app.updateRepository
+
         setContent {
             FktmTheme {
-                // 底部导航：门锁 / 饮水。两个功能各自独立成一栏。
+                // 底部导航：门锁 / 饮水 / 关于。功能各自独立成一栏。
                 var tab by rememberSaveable { mutableIntStateOf(0) }
+                var release by remember { mutableStateOf<com.fktm.app.update.UpdateRelease?>(null) }
+                var promptDismissed by rememberSaveable { mutableStateOf(false) }
+                val downloadState by repo.downloadState.collectAsStateWithLifecycle()
+                val scope = rememberCoroutineScope()
+
+                // 每次启动都查一次更新（不看待机阈值）：有新版就弹窗，
+                // 用户点「稍后」本次进程内不再打扰。失败静默 —— 检查更新不该挡住开锁。
+                // 放在 Activity 这一层而不是「关于」页，是为了不进关于页也能收到提示。
+                LaunchedEffect(Unit) {
+                    val r = withContext(Dispatchers.IO) {
+                        runCatching { repo.checkForUpdate(force = true) }.getOrNull()
+                    }
+                    if (r is UpdateCheckResult.UpdateAvailable) release = r.release
+                }
+
                 Scaffold(
                     bottomBar = {
                         NavigationBar {
@@ -78,20 +107,38 @@ class MainActivity : ComponentActivity() {
                                 icon = { Text("💧", fontSize = 18.sp) },
                                 label = { Text("饮水") },
                             )
+                            NavigationBarItem(
+                                selected = tab == 2,
+                                onClick = { tab = 2 },
+                                icon = { Text("ℹ️", fontSize = 18.sp) },
+                                label = { Text("关于") },
+                            )
                         }
                     },
                 ) { inner ->
                     Box(Modifier.padding(inner)) {
-                        if (tab == 0) {
-                            MainScreen(
+                        when (tab) {
+                            0 -> MainScreen(
                                 vm = vm,
                                 onRequestPermissions = { ensurePermissions() },
                                 onEnsureNotificationPermission = { ensureNotificationPermission() },
+                                onOpenAbout = { tab = 2 },
                             )
-                        } else {
-                            WaterScreen(vm = waterVm)
+                            1 -> WaterScreen(vm = waterVm)
+                            else -> AboutScreen(repo = repo, settings = app.updateSettings)
                         }
                     }
+                }
+
+                val pending = release
+                if (pending != null && !promptDismissed) {
+                    UpdatePromptDialog(
+                        release = pending,
+                        downloadState = downloadState,
+                        onDismiss = { promptDismissed = true },
+                        onUpdate = { scope.launch { repo.downloadAndInstall(pending) } },
+                        onCancelDownload = { repo.cancelDownload() },
+                    )
                 }
             }
         }
@@ -143,7 +190,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun autoUnlock() {
-        val cred = (application as FktmApp).credentialStore.primary() ?: return
+        // 有多把锁时优先 VOC（离线、秒开）；只有 MV 就开 MV（在线取帧）
+        val all = (application as FktmApp).credentialStore.load()
+        val cred = all.firstOrNull { !it.isMv } ?: all.firstOrNull() ?: return
         vm.unlock(cred)
     }
 

@@ -16,8 +16,7 @@ import android.content.Intent
 import com.fktm.app.water.WaterDiag
 import com.fktm.app.water.WaterDevices
 import com.fktm.app.water.CookiePuller
-import com.fktm.app.credential.CredentialStore
-import com.fktm.app.credential.LockCredential
+import com.fktm.app.water.LockImport
 import com.fktm.app.water.WaterSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -142,22 +141,23 @@ class WaterViewModel : ViewModel() {
         WaterSession.adopt(context.applicationContext, jar)
         api = WaterApi(MtopClient(LinkedHashMap(jar)))
         WaterDiag.log(context.applicationContext, "pull", WaterDiag.cookieSummary(jar))
-        importDoorLocks(context, res.doorlocks)
+        importLocks(context, res)
     }
 
-    /** 门锁凭证入库：离线 BLE 静态数据，不做 CM 校验（按 mac 去重）。 */
-    private fun importDoorLocks(context: Context, doorlocks: List<CookiePuller.DoorLock>) {
-        doorlocks.forEach { dl ->
-            CredentialStore(context.applicationContext).upsert(
-                LockCredential(
-                    name = "门锁 ${dl.mac.takeLast(5)}",
-                    address = dl.mac,
-                    activationKey = dl.activationKey,
-                )
-            )
-            WaterDiag.log(context.applicationContext, "doorlock", dl.mac)
-            Log.d(TAG, "water: doorlock imported ${dl.mac}")
-        }
+    /**
+     * 门锁自动入库（VOC 静态钥匙 / MV 在线锁）。
+     *
+     * 不做 CM 校验：钥匙是离线 BLE 数据，会话没绑校园档案时也该先存下来。
+     */
+    private fun importLocks(context: Context, res: CookiePuller.PullResult) {
+        val applied = runCatching { LockImport.apply(context, res.doorlocks, res.mvLocks) }
+            .getOrElse {
+                Log.d(TAG, "water: lock import failed ${it.javaClass.simpleName}")
+                return
+            }
+        if (!applied.any) return
+        WaterDiag.log(context.applicationContext, "locks", applied.toString())
+        Log.d(TAG, "water: locks imported $applied")
     }
 
     fun syncIfImported(context: Context) {
@@ -178,7 +178,7 @@ class WaterViewModel : ViewModel() {
             val res = withContext(Dispatchers.IO) { CookiePuller.pull() } ?: return@launch
             // 门锁凭证先入库：离线 BLE 静态数据，不依赖 CM 层，
             // 就算 cookie 会话还没绑校园档案也要收（否则 CM 探测失败会把它一起跳过）
-            importDoorLocks(context, res.doorlocks)
+            importLocks(context, res)
             val jar = res.cookies
             val cur = WaterSession.cached()
             // cookie 没变化就不折腾（对称比较，防止一边多一个键漏检）
@@ -236,8 +236,8 @@ class WaterViewModel : ViewModel() {
     private fun probeCampusUser(context: Context) {
         val client = api ?: return
         viewModelScope.launch {
-            // CM 层探测：cookie2 没被官方版 sync 过时（重装/重登后未打开过校园页面），
-            // member.app.user.get 会回「用户未登录」，此时 water/zmst 全挂。
+            // CM 层探测：身份只认 `.confong.cn` 的那条 cookie2（2026-11-01 实测）。
+            // 导入时若被 `.taobao.com` 的同名 cookie 覆盖，就会回「用户未登录」，water/zmst 全挂。
             val jar = WaterSession.cached() ?: return@launch
             val cmOk = withContext(Dispatchers.IO) { WaterSession.campusProbeOk(jar) }
             WaterDiag.log(context.applicationContext, "cmProbe", if (cmOk) "OK" else "未激活")
@@ -246,12 +246,13 @@ class WaterViewModel : ViewModel() {
                 pendingActivation = launched
                 state = if (launched) {
                     state.copy(
-                        status = "会话未激活：已自动打开天猫校园的宿舍页，等它加载完回到本页即可自动完成",
+                        status = "缺校园会话：已打开天猫校园的宿舍页，等它加载完回到本页重新导入",
                     )
                 } else {
                     state.copy(
                         status = "",
-                        error = "会话未激活：请手动打开天猫校园的「智能宿舍」页一次，再回来点导入",
+                        error = "缺校园会话：导入的 cookie 里没有 .confong.cn 的 cookie2。" +
+                            "请先在天猫校园里打开一次校园页面（如「智能宿舍」），再回来导入。",
                     )
                 }
                 return@launch

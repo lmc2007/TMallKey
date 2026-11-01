@@ -2,7 +2,6 @@ package com.fktm.app.ui
 
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -25,11 +24,11 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -53,8 +52,6 @@ import com.fktm.app.R
 import com.fktm.app.credential.LockCredential
 import com.fktm.app.credential.LogcatParser
 import com.fktm.app.credential.GrabForegroundService
-import com.fktm.app.credential.ShizukuLogcatGrabber
-import com.fktm.app.update.UpdateSources
 import com.fktm.app.vm.UnlockState
 import com.fktm.app.vm.UnlockViewModel
 import kotlinx.coroutines.Dispatchers
@@ -63,13 +60,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.fktm.app.credential.RootGrabber
 import org.json.JSONObject
-import rikka.shizuku.Shizuku
 
 @Composable
 fun MainScreen(
     vm: UnlockViewModel,
     onRequestPermissions: () -> Unit,
     onEnsureNotificationPermission: () -> Unit,
+    onOpenAbout: () -> Unit,
 ) {
     val locks = vm.locks
     var showImport by remember { mutableStateOf(!vm.locks.any()) }
@@ -81,6 +78,8 @@ fun MainScreen(
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 vm.refresh()
+                // 从天猫校园模块拉门锁与会话：用户在那边开过门锁页，这里就自动入库
+                vm.syncFromModule()
                 vm.mvPrewarm()   // MV 锁预连接：连上 20s 没开锁自动断开
             }
         }
@@ -131,7 +130,7 @@ fun MainScreen(
         Spacer(Modifier.height(18.dp))
 
         if (locks.isEmpty() && !showImport) {
-            EmptyState(onImport = { showImport = true })
+            EmptyState(onImport = { showImport = true }, onOpenAbout = onOpenAbout)
         } else {
             locks.forEach { cred ->
                 LockCard(
@@ -179,18 +178,10 @@ fun MainScreen(
                 showCancel = locks.isNotEmpty(),
                 onCancel = { showImport = false },
                 onEnsureNotificationPermission = onEnsureNotificationPermission,
+                onOpenAbout = onOpenAbout,
             )
         }
 
-
-        Spacer(Modifier.height(18.dp))
-        HorizontalDivider()
-        Spacer(Modifier.height(10.dp))
-        Text("关于", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(8.dp))
-        AboutCard()
-        Spacer(Modifier.height(10.dp))
-        UpdateCard(repo = app.updateRepository, settings = app.updateSettings)
 
         if (vm.logText.isNotBlank()) {
             Spacer(Modifier.height(18.dp))
@@ -216,58 +207,6 @@ fun MainScreen(
         }
 
         Spacer(Modifier.height(30.dp))
-    }
-}
-
-/**
- * 「关于」卡片：应用名 + 作者 + 落地页 / 开源仓库两个入口。
- *
- * 两个地址都统一从 [UpdateSources] 取，避免和「检查更新」的源各写一份、改的时候漏掉。
- */
-@Composable
-private fun AboutCard() {
-    val context = LocalContext.current
-
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        shape = RoundedCornerShape(14.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.padding(14.dp)) {
-            Text(
-                stringResource(R.string.app_name),
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "作者：牧冷",
-                fontSize = 11.sp,
-                lineHeight = 16.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-            )
-            Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = { openInBrowser(context, UpdateSources.PAGES_URL) },
-                    modifier = Modifier.weight(1f),
-                ) { Text("打开落地页", fontSize = 13.sp) }
-                OutlinedButton(
-                    onClick = { openInBrowser(context, UpdateSources.REPO_URL) },
-                    modifier = Modifier.weight(1f),
-                ) { Text("GitHub 仓库", fontSize = 13.sp) }
-            }
-        }
-    }
-}
-
-/** 用系统浏览器打开链接。失败（没有浏览器等）就静默忽略，不打断主界面。 */
-private fun openInBrowser(context: Context, url: String) {
-    runCatching {
-        context.startActivity(
-            Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        )
     }
 }
 
@@ -301,7 +240,7 @@ private fun ConnectionBadge(ready: Boolean, connecting: Boolean, target: String?
 }
 
 @Composable
-private fun EmptyState(onImport: () -> Unit) {
+private fun EmptyState(onImport: () -> Unit, onOpenAbout: () -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(14.dp),
@@ -317,6 +256,10 @@ private fun EmptyState(onImport: () -> Unit) {
             )
             Spacer(Modifier.height(14.dp))
             Button(onClick = onImport, modifier = Modifier.fillMaxWidth()) { Text("导入凭证") }
+            Spacer(Modifier.height(6.dp))
+            TextButton(onClick = onOpenAbout, modifier = Modifier.fillMaxWidth()) {
+                Text("免 root 怎么拿钥匙？看补丁版教程", fontSize = 12.sp)
+            }
         }
     }
 }
@@ -427,12 +370,12 @@ private sealed interface GrabState {
 }
 
 /**
- * root 一键抓取 —— 比 Shizuku 那条更省事：一次按钮同时拿「门锁钥匙 + 饮水登录态」。
+ * root 一键抓取：一次按钮同时拿「门锁钥匙 + 饮水登录态」。
  *
  * ① `su -M` 读天猫校园 WebView cookie 库 → 存为本机登录态（Keystore 加密）
  * ② `su -M` 流式监听 logcat → 用户去开一次门 → activationKey 填入表单
  *
- * 无 root 时给出明确提示并退回 Shizuku 方式。
+ * 无 root 时不阻塞使用：天猫校园那边打开一次门锁页，模块会推给 fkTM 自动入库。
  */
 @Composable
 private fun RootGrabSection(
@@ -448,8 +391,9 @@ private fun RootGrabSection(
         scope.launch {
             if (!RootGrabber.hasRoot()) {
                 state = GrabState.Error(
-                    "root 不可用（su 未授权或不存在）。请用下方的 Shizuku 方式抓取，" +
-                        "或先在 KernelSU/Magisk 里允许 TmallKey。",
+                    "root 不可用（su 未授权或不存在）。无 root 也能用：" +
+                        "在天猫校园里打开一次门锁页，本 App 会自动把钥匙收进来；" +
+                        "或在下面手工填地址与钥匙。",
                 )
                 return@launch
             }
@@ -551,158 +495,34 @@ private fun RootGrabSection(
 }
 
 /**
- * 自动抓取凭证 —— 走 Shizuku，在本机以 shell 身份读 logcat。
+ * 「钥匙怎么来」提示卡。
  *
- * 等价于在电脑上跑 `fktm/p0_capture.bat`，只是把整套流程搬进了 App：
- * 用户只需要在弹窗里授权一次，然后照着提示去天猫校园点一次开锁。
+ * 放在获取凭证面板的最上方：第一次进来的人手里什么都没有，
+ * 这段是唯一能把他引到正确路径（补丁版点一次开锁 → 自动导入）的地方。
  */
 @Composable
-private fun AutoGrabSection(
-    onHit: (LogcatParser.Hit) -> Unit,
-    onEnsureNotificationPermission: () -> Unit,
-) {
-    var state by remember { mutableStateOf<GrabState>(GrabState.Idle) }
-
-    /** 是否已经通过结果文件填入过 —— 防止后到的 binder「失败」把已到手的成功盖掉。 */
-    var applied by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-
-    // ★ 兜底取件通道（这是「抓不到」问题的真正解药）
-    //
-    // ColorOS 会把切到后台的 fkTM 冻结上百秒（do_freezer_trap），冻结期间
-    // binder 回复根本送不回来 —— 界面就永远停在「抓取中…」。
-    // 服务端因此改成「命中即落盘」，这里只要每秒问一次那个结果文件：
-    // 进程一解冻（用户切回 App）就立刻读到，不必等 binder 回复。
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(1_000)
-            val hit = ShizukuLogcatGrabber.consumeHit(context) ?: continue
-            applied = true
-            onHit(hit)
-            state = if (hit.isComplete) {
-                GrabState.Info("已抓到凭证并填入下方表单，确认后点「保存」")
-            } else {
-                GrabState.Info("已抓到钥匙，但日志里没有门锁地址，请手动填写地址")
-            }
-        }
-    }
-
-    // Shizuku 的授权回调：允许后自动接上，用户不必再点一次
-    DisposableEffect(Unit) {
-        val listener = Shizuku.OnRequestPermissionResultListener { code, grant ->
-            if (code == ShizukuLogcatGrabber.REQUEST_CODE) {
-                state = if (grant == PackageManager.PERMISSION_GRANTED) {
-                    GrabState.Info("已授权，再点一次「开始抓取」")
-                } else {
-                    GrabState.Error("授权被拒绝 —— 需要在 Shizuku 里允许 TmallKey")
-                }
-            }
-        }
-        val registered = runCatching {
-            Shizuku.addRequestPermissionResultListener(listener)
-        }.isSuccess
-        onDispose {
-            if (registered) runCatching { Shizuku.removeRequestPermissionResultListener(listener) }
-        }
-    }
-
-    fun start() {
-        if (!ShizukuLogcatGrabber.isAvailable()) {
-            state = GrabState.Error(
-                "Shizuku 未运行。请先安装 Shizuku 并用无线调试启动它，" +
-                    "然后回到这里重试。"
-            )
-            return
-        }
-        if (!ShizukuLogcatGrabber.hasPermission()) {
-            ShizukuLogcatGrabber.requestPermission()
-            state = GrabState.Info("已弹出授权框 —— 允许后再点一次「开始抓取」")
-            return
-        }
-        applied = false
-        state = GrabState.Running
-        scope.launch {
-            // 抓取要求用户切到天猫校园开锁 → TmallKey 全程在后台，而 ColorOS 会冻结后台进程。
-            // 起前台服务提高优先级（能拖住一些时间），但**不能指望它挡住冻结** ——
-            // 真正的保命机制是「服务端命中即落盘 + 界面轮询取件」（见上方 LaunchedEffect）。
-            //
-            // 前台服务在 Android 13+ 要有通知权限才能把常驻通知显示出来，
-            // 这里再确认一次：缺权限就顺手弹一次申请，用户拒绝也不影响抓取本身。
-            onEnsureNotificationPermission()
-            GrabForegroundService.start(context)
-            try {
-                state = when (val r = ShizukuLogcatGrabber.capture(context)) {
-                    is ShizukuLogcatGrabber.Result.Found -> {
-                        applied = true
-                        onHit(r.hit)
-                        if (r.hit.isComplete) {
-                            GrabState.Info("已抓到凭证并填入下方表单，确认后点「保存」")
-                        } else {
-                            GrabState.Info("已抓到钥匙，但日志里没有门锁地址，请手动填写地址")
-                        }
-                    }
-                    // 结果文件可能已被界面轮询取走并填好了 —— 那就别再用 binder 的失败盖掉成功
-                    is ShizukuLogcatGrabber.Result.Failed ->
-                        if (applied) {
-                            GrabState.Info("已抓到凭证并填入下方表单，确认后点「保存」")
-                        } else {
-                            GrabState.Error(r.reason)
-                        }
-                    ShizukuLogcatGrabber.Result.PermissionDenied ->
-                        GrabState.Error("缺少 Shizuku 授权")
-                }
-            } finally {
-                GrabForegroundService.stop(context)
-            }
-        }
-    }
-
+private fun KeyHintCard(onOpenAbout: () -> Unit) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+        ),
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(14.dp)) {
-            Text("自动抓取钥匙站", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text("钥匙怎么来？", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
             Spacer(Modifier.height(4.dp))
             Text(
-                "经 Shizuku 读天猫校园自己的日志，抓取它下发的 activationKey。\n" +
-                    "点了「开始抓取」后，切到天猫校园在门口开一次锁即可；\n" +
-                    "开完回到本 App，会自动填入下方表单。",
+                "免 root：装一次补丁版天猫校园 → 打开它的「门锁」页 → 点一次开锁，" +
+                    "钥匙会自动出现在这里，之后开锁完全不用它。\n" +
+                    "有 root：用下面的「root 抓取」，一次拿齐钥匙和饮水登录态。",
                 fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                lineHeight = 16.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
             )
-
-            when (val s = state) {
-                GrabState.Idle -> {}
-                GrabState.Running -> {
-                    Spacer(Modifier.height(10.dp))
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        "正在后台监听日志 —— 现在去天猫校园点一次开锁，" +
-                            "开完回到本 App 即会自动填入（最多监听 4 分钟）。",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-                is GrabState.Info -> {
-                    Spacer(Modifier.height(8.dp))
-                    Text(s.msg, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
-                }
-                is GrabState.Error -> {
-                    Spacer(Modifier.height(8.dp))
-                    Text(s.msg, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
-                }
+            TextButton(onClick = onOpenAbout) {
+                Text("补丁版教程与下载 →", fontSize = 12.sp)
             }
-
-            Spacer(Modifier.height(10.dp))
-            OutlinedButton(
-                onClick = { start() },
-                enabled = state != GrabState.Running,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text(if (state == GrabState.Running) "抓取中…" else "开始抓取") }
         }
     }
 }
@@ -714,6 +534,7 @@ private fun ImportPanel(
     showCancel: Boolean,
     onCancel: () -> Unit,
     onEnsureNotificationPermission: () -> Unit,
+    onOpenAbout: () -> Unit,
 ) {
     var name by remember { mutableStateOf("宿舍门") }
     var address by remember { mutableStateOf("") }
@@ -737,6 +558,10 @@ private fun ImportPanel(
             )
             Spacer(Modifier.height(12.dp))
 
+            KeyHintCard(onOpenAbout = onOpenAbout)
+
+            Spacer(Modifier.height(12.dp))
+
             RootGrabSection(
                 onHit = { hit ->
                     key = hit.activationKey
@@ -744,19 +569,6 @@ private fun ImportPanel(
                     error = null
                 },
                 onMvDetected = onMvDetected,
-                onEnsureNotificationPermission = onEnsureNotificationPermission,
-            )
-
-            Spacer(Modifier.height(14.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(14.dp))
-
-            AutoGrabSection(
-                onHit = { hit ->
-                    key = hit.activationKey
-                    hit.macAddress?.let { address = it }
-                    error = null
-                },
                 onEnsureNotificationPermission = onEnsureNotificationPermission,
             )
 

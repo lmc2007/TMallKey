@@ -31,21 +31,71 @@ class MvLockApi(cookies: Map<String, String>) {
         val encryptData: String,
     )
 
-    /** 拉一次开锁数据。每次调用签发的 encryptData 都不同，取到就立刻用。 */
+    /**
+     * 拉一次开锁数据。每次调用签发的 encryptData 都不同，取到就立刻用。
+     *
+     * `macId` 的写法服务端两种都见过（`D2017CA1D8A6` / `D2:01:7C:A1:D8:A6`），
+     * 传错了只回一句 `FAIL_BIZ_CE003::参数异常`，看起来像"锁没绑"其实只是格式不对。
+     * 所以这里按「原样 → 冒号 → 无分隔」依次试，**只在参数类错误时才换格式**
+     * （锁未绑定之类的业务错误不重试，避免白等三次网络）。
+     */
     fun fetchUnlockData(macId: String): UnlockData {
-        val body = client.call(
+        var lastError: Exception? = null
+        for (candidate in macCandidates(macId)) {
+            try {
+                return fetchOnce(candidate)
+            } catch (e: MvApiException) {
+                lastError = e
+                if (!e.maybeParamIssue) throw e       // 业务错误：换格式也没用
+            }
+        }
+        throw lastError ?: IllegalStateException("没有可用的 macId")
+    }
+
+    private fun fetchOnce(macId: String): UnlockData {
+        val raw = client.call(
             "mtop.tmall.campus.guide.zmst.unlock.data.get",
             linkedMapOf<String, Any?>("macId" to macId),
         )
-        val data = JSONObject(body).optJSONObject("data")
+        val body = JSONObject(raw)
+        val ret = body.optJSONArray("ret")?.let { arr ->
+            (0 until arr.length()).mapNotNull { arr.optString(it).takeIf(String::isNotBlank) }
+        }.orEmpty()
+        if (ret.any { !it.startsWith("SUCCESS") }) {
+            throw MvApiException(ret.joinToString(" | "), macId)
+        }
+        val data = body.optJSONObject("data")
             ?: throw IllegalStateException("响应缺少 data 字段")
         val enc = data.optString("encryptData").trim()
-        require(enc.isNotEmpty()) { "服务端未返回 encryptData（错误：${data.opt("errorMsg") ?: "未知"}）" }
+        if (enc.isEmpty()) {
+            throw MvApiException("服务端未返回 encryptData（${data.optString("errorMsg")}）", macId)
+        }
         return UnlockData(
-            macId = data.optString("macId", macId),
+            macId = data.optString("macId", macId).ifBlank { macId },
             deviceName = data.optString("deviceName"),
             encryptData = enc,
         )
+    }
+
+    /** 服务端报错（ret 非 SUCCESS）。 */
+    class MvApiException(message: String, val macId: String) : Exception(message) {
+        /** 参数形态类错误：换一种 macId 写法还有救。 */
+        val maybeParamIssue: Boolean
+            get() = listOf("CE003", "参数", "BIZPARAM", "PROTOPARAM").any {
+                message?.contains(it) == true
+            }
+    }
+
+    private fun macCandidates(raw: String): List<String> {
+        val out = LinkedHashSet<String>()
+        val trimmed = raw.trim()
+        if (trimmed.isNotEmpty()) out.add(trimmed)
+        val hex = trimmed.replace(Regex("[^0-9a-fA-F]"), "")
+        if (hex.length == 12) {
+            out.add(hex.chunked(2).joinToString(":").uppercase())
+            out.add(hex.uppercase())
+        }
+        return out.toList()
     }
 
     companion object {

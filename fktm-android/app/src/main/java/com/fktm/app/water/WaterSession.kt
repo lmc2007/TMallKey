@@ -26,7 +26,7 @@ import java.util.concurrent.TimeUnit
  * 所以这里换一个思路：**不去产生会话，直接把已有的会话搬过来**。
  * 天猫校园的 WebView cookie 库是**明文 SQLite**（只有 Chrome 浏览器才走 os_crypt 加密），
  * root 读一次即可；读完就落进 [WaterCookies] 的 Keystore 加密存储，
- * 之后**不再需要 root / Shizuku**，直到 cookie 过期（实测约 24 天）。
+ * 之后**不再需要 root**，直到 cookie 过期（实测约 24 天）。
  */
 object WaterSession {
 
@@ -58,6 +58,7 @@ object WaterSession {
 
     /** 登录完成后由 UI 调用：写内存 + 加密落盘。 */
     fun adopt(context: Context, jar: Map<String, String>) {
+        appContextForDiag = context.applicationContext
         val map = LinkedHashMap(jar)
         cache = map
         WaterCookies.save(context, map)
@@ -75,6 +76,7 @@ object WaterSession {
      * 没有就抛 [NotLoggedIn]，由 UI 引导去「导入」—— 不做静默兜底。
      */
     fun ensure(context: Context): Map<String, String> {
+        appContextForDiag = context.applicationContext
         cache?.let { if (it.isNotEmpty()) return it }
 
         val stored = WaterCookies.load(context)
@@ -191,7 +193,7 @@ object WaterSession {
         val tmp = File(context.cacheDir, "imported_ck.db")
         try {
             tmp.writeBytes(bytes)
-            val jar = linkedMapOf<String, String>()
+            val rows = ArrayList<CookieRow>(256)
             val db = SQLiteDatabase.openDatabase(tmp.path, null, SQLiteDatabase.OPEN_READONLY)
             db.use { d ->
                 d.rawQuery("select host_key,name,value,expires_utc from cookies", null).use { c ->
@@ -209,11 +211,11 @@ object WaterSession {
                             val expMs = expUtc / 1000 - CHROME_EPOCH_OFFSET_MS
                             if (expMs in 1 until nowMs - 60_000) continue
                         }
-                        jar[name] = value
+                        rows.add(CookieRow(host, name, value))
                     }
                 }
             }
-            return jar
+            return mergeCookieRows(rows)
         } finally {
             runCatching { tmp.delete() }
         }
@@ -233,7 +235,20 @@ object WaterSession {
         val c = MtopClient(LinkedHashMap(jar))
         c.call("mtop.tmall.campus.member.app.user.get", emptyMap())
         true
-    }.getOrElse { false }
+    }.getOrElse { e ->
+        // 失败原因必须落盘：以前只返回 false，排查时只能猜
+        appContextForDiag?.let { ctx ->
+            WaterDiag.log(
+                ctx, "cmProbeFail",
+                "${e.javaClass.simpleName}: ${e.message} cookie2=${jar["cookie2"]?.take(6)}…",
+            )
+        }
+        false
+    }
+
+    /** 由 [adopt] / [ensure] 侧写入，供 [campusProbeOk] 记日志用。 */
+    @Volatile
+    var appContextForDiag: android.content.Context? = null
 
     /** 登录态属于哪个账号：`munb` / `unb` 就是用户 ID。 */
     fun accountId(jar: Map<String, String>): String =
@@ -264,4 +279,41 @@ object WaterSession {
 
     /** 首次授权会弹框，留给用户点「允许」的时间要够。 */
     private const val SU_TIMEOUT_S = 45L
+}
+
+// ---------------------------------------------------------------------------
+// 多域 cookie 合并（纯函数，便于单测）
+// ---------------------------------------------------------------------------
+
+/** cookie 库里的一行。 */
+internal data class CookieRow(val host: String, val name: String, val value: String)
+
+/**
+ * 多域 cookie 行 → 扁平 jar。
+ *
+ * ## 为什么必须单独处理 `cookie2`
+ *
+ * 同一个账号在 WebView 里有**两条 cookie2**：
+ *
+ *  · `.taobao.com`  —— 淘宝登录态
+ *  · `.confong.cn`  —— 校园（掌门神通）侧会话，**CM 身份只认这一条**
+ *
+ * 旧实现按域名顺序逐个 `jar[name] = value`，`.taobao.com` 排在后面就会把 confong 的
+ * cookie2 覆盖掉；结果 `member.app.user.get` 一律回「用户未登录」，
+ * 表现为「补丁版没有 CM」——实际是导入时把关键那条 cookie 丢了。
+ *
+ * 所以这里把 confong 域的 cookie2 记下来，**最后统一写**，保证它一定赢。
+ */
+internal fun mergeCookieRows(rows: List<CookieRow>, confongDomain: String = "confong.cn"): Map<String, String> {
+    val jar = LinkedHashMap<String, String>()
+    var confongCookie2: String? = null
+    for (row in rows) {
+        if (row.value.isEmpty()) continue
+        if (row.name == "cookie2" && row.host.removePrefix(".").endsWith(confongDomain)) {
+            confongCookie2 = row.value
+        }
+        jar[row.name] = row.value
+    }
+    confongCookie2?.let { jar["cookie2"] = it }
+    return jar
 }

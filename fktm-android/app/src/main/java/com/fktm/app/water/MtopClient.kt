@@ -204,14 +204,33 @@ class MtopClient(
         }
     }
 
-    /** 吸收响应里的 Set-Cookie（只取 `name=value` 前段）。 */
-    private fun absorb(setCookies: List<String>) {
+    /**
+     * 吸收响应里的 Set-Cookie（只取 `name=value` 前段）。
+     *
+     * ⚠ `cookie2` 是**多域**的：`.taobao.com` 与 `.confong.cn` 各一条，CM 身份只认后者。
+     * mtop 响应几乎每个都带 `Set-Cookie: cookie2=…; Domain=.taobao.com`，照单全收会把
+     * 导入时选好的 CM 会话顶掉（症状：用几次之后突然「用户未登录」）。
+     * 所以 cookie2 只接受 confong 域下发的。
+     */
+    internal fun absorb(setCookies: List<String>) {
         for (raw in setCookies) {
             val first = raw.substringBefore(';')
             val name = first.substringBefore('=', "").trim()
             if (name.isEmpty() || !first.contains('=')) continue
+            // 已有一条 cookie2 时，只允许 confong 域把它换掉；jar 里还没有就直接收
+            // （应用内登录的首包需要它，不能一刀切拒绝）
+            if (name == "cookie2" && cookies.containsKey("cookie2") && !isConfongScoped(raw)) continue
             cookies[name] = first.substringAfter('=', "")
         }
+    }
+
+    /** 这条 Set-Cookie 是不是 confong 域下发的（`Domain=.confong.cn`）。 */
+    private fun isConfongScoped(setCookie: String): Boolean {
+        val low = setCookie.lowercase()
+        val idx = low.indexOf("domain=")
+        if (idx < 0) return false
+        val rest = low.substring(idx + "domain=".length).substringBefore(';').trim()
+        return rest.trimStart('.') == CONFONG_DOMAIN
     }
 
     private fun cookieHeader(): String =
@@ -219,6 +238,9 @@ class MtopClient(
 
     companion object {
         const val APP_KEY = "12574478"
+
+        /** CM 身份所在的域：`.confong.cn` 的 cookie2（2026-11-01 实测）。 */
+        const val CONFONG_DOMAIN = "confong.cn"
         private const val GATEWAY_PREFIX = "https://h5api.m.taobao.com/h5/"
         private const val TOKEN_COOKIE = "_m_h5_tk"
         /** 请求 UA。WebView 也用它 —— UA 不一致会被风控当成「指纹与请求不同源」。 */

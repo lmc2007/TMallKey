@@ -5,7 +5,8 @@ import android.content.ContentValues
 import android.database.Cursor
 import android.net.Uri
 import android.os.Bundle
-import org.json.JSONObject
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * 给 LSPatch 模块用的「推Cookie」入口。
@@ -34,16 +35,8 @@ class CookieImportProvider : ContentProvider() {
         if (method != METHOD_PUT) return null
         val raw = extras?.getString(EXTRA_JSON) ?: return null
 
-        val jar = runCatching {
-            val obj = JSONObject(raw)
-            val map = linkedMapOf<String, String>()
-            obj.keys().forEach { k ->
-                val v = obj.optString(k)
-                if (v.isNotBlank()) map[k] = v
-            }
-            map
-        }.getOrNull().orEmpty().filterKeys { it.isNotBlank() }
-
+        val env = ModuleEnvelope.parse(raw)
+        val jar = env?.cookies.orEmpty()
         val account = WaterSession.accountId(jar)
         val ctx = requireNotNull(context)
         if (account.isBlank()) {
@@ -52,13 +45,40 @@ class CookieImportProvider : ContentProvider() {
         }
 
         // CM 层探测不过就不覆盖（新会话可能没绑校园档案，water.start 会失败）
-        if (!WaterSession.campusProbeOk(jar)) {
+        if (!probeBlocking(jar)) {
             WaterDiag.log(ctx.applicationContext, "providerImport", "CM 层未绑定，忽略")
             return Bundle().apply { putBoolean("ok", false) }
         }
         WaterSession.adopt(ctx.applicationContext, jar)
         WaterDiag.log(ctx.applicationContext, "providerImport", WaterDiag.cookieSummary(jar))
+        // 门锁跟着 cookie 一起进来的：钥匙是离线数据，不依赖 CM 校验
+        env?.let {
+            val applied = runCatching { LockImport.apply(ctx.applicationContext, it.doorlocks, it.mvLocks) }
+                .getOrDefault(LockImport.Applied())
+            if (applied.any) {
+                WaterDiag.log(ctx.applicationContext, "providerLocks", applied.toString())
+            }
+        }
         return Bundle().apply { putBoolean("ok", true) }
+    }
+
+    /**
+     * `call()` 由调用方线程（通常是主线程）同步执行，直接发网络会抛
+     * `NetworkOnMainThreadException` —— 之前所有 provider 推送都被判「CM 层未绑定」就是这个原因。
+     * 这里切到工作线程并有限等待。
+     */
+    private fun probeBlocking(jar: Map<String, String>): Boolean {
+        // 一律丢到工作线程：本机型上 `call()` 实际跑在主线程，直接请求会抛
+        // `NetworkOnMainThreadException`（诊断日志里复现过多次），
+        // 于是每次推送都被判「CM 层未绑定」。
+        var ok = false
+        val latch = CountDownLatch(1)
+        Thread {
+            runCatching { ok = WaterSession.campusProbeOk(jar) }
+            latch.countDown()
+        }.apply { isDaemon = true; start() }
+        latch.await(8, TimeUnit.SECONDS)
+        return ok
     }
 
     override fun insert(uri: Uri, values: ContentValues?) = null

@@ -35,11 +35,18 @@ class UpdateSettings(context: Context) {
         get() = enumOrDefault(prefs.getString(KEY_DOWNLOAD_MODE, null), DownloadMode.PROXY)
         set(value) = prefs.edit().putString(KEY_DOWNLOAD_MODE, value.name).apply()
 
+    /**
+     * 旧版的「启动检查频率」配置。
+     *
+     * 现在启动检查固定为**每次启动都查一次**（`MainActivity` 里直接调
+     * `checkForUpdate(force = true)`），这个阈值只保留给旧配置兼容，
+     * 不再参与任何判断 —— 别再把新逻辑挂到它上面。
+     */
     var launchThreshold: LaunchCheckThreshold
         get() = enumOrDefault(prefs.getString(KEY_LAUNCH_THRESHOLD, null), LaunchCheckThreshold.DAYS_3)
         set(value) = prefs.edit().putString(KEY_LAUNCH_THRESHOLD, value.name).apply()
 
-    /** 距上次检查是否已超过阈值。`MANUAL` 永远返回 false（不自动检查）。 */
+    /** 距上次检查是否已超过阈值。**已不再用于启动检查**，仅保留给旧调用方。 */
     fun shouldCheckOnLaunch(now: Long = System.currentTimeMillis()): Boolean {
         val hours = launchThreshold.hours ?: return false
         val intervalMillis = hours * 60L * 60L * 1000L

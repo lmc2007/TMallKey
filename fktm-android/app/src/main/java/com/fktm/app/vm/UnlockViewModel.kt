@@ -106,8 +106,13 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val started = System.currentTimeMillis()
             val result = try {
-                // ensure = 内存 → 加密存储：进程被杀后重开也能拿到会话
-                val jar = com.fktm.app.water.WaterSession.ensure(getApplication())
+                // MV 开锁是**在线**的：会话在天猫校园里重新登录后旧 cookie2 会失效，
+                // 所以先向模块拉一次最新会话（拿不到就沿用本地缓存，不阻塞开锁）。
+                val jar = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    refreshSessionFromModule()
+                    // ensure = 内存 → 加密存储：进程被杀后重开也能拿到会话
+                    com.fktm.app.water.WaterSession.ensure(getApplication())
+                }
                 val api = com.fktm.app.mv.MvLockApi(java.util.LinkedHashMap(jar))
                 // 预连接已就绪则 0ms 复用；否则现场建连
                 com.fktm.app.mv.MvBleClient.ensureConnected(
@@ -141,6 +146,64 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
         }
+    }
+
+    /**
+     * 主界面一回到前台就向模块拉一次：**门锁凭证 + 会话**。
+     *
+     * 门锁（VOC 的 activationKey / MV 的 MAC）只在天猫校园打开门锁页那一刻才存在，
+     * 用户从那边切回来时这里拉一次就自动入库，不需要他再点「添加门锁凭证」。
+     *
+     * 会话只在 `cookie2` 变了才做联网探测（探测要发 mtop 请求，不能每次 resume 都打）。
+     */
+    fun syncFromModule() {
+        viewModelScope.launch {
+            val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                com.fktm.app.water.CookiePuller.pull()
+            } ?: return@launch
+
+            // 每次拉取都留一条：排查「为什么没自动导入」时，先看这条在不在
+            com.fktm.app.water.WaterDiag.log(
+                getApplication(), "syncPull",
+                "cookies=${res.cookies.size} doorlocks=${res.doorlocks.size} mv=${res.mvLocks.size}",
+            )
+            val applied = runCatching {
+                com.fktm.app.water.LockImport.apply(
+                    getApplication(), res.doorlocks, res.mvLocks,
+                )
+            }.getOrNull()
+            if (applied?.any == true) {
+                refresh()
+                com.fktm.app.water.WaterDiag.log(
+                    getApplication(), "locks", applied.toString(),
+                )
+            }
+
+            val cur = com.fktm.app.water.WaterSession.cached()
+            if (cur != null && cur["cookie2"] == res.cookies["cookie2"]) return@launch
+            val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                com.fktm.app.water.WaterSession.campusProbeOk(res.cookies)
+            }
+            if (ok) com.fktm.app.water.WaterSession.adopt(getApplication(), res.cookies)
+        }
+    }
+
+    /**
+     * 向天猫校园进程（LSPatch 模块的本地 Socket）拉一次最新会话，顺便收门锁。
+     *
+     * 只在**探测通过**时替换：重新登录后的新会话可能还没绑校园档案，
+     * 直接覆盖会让原本能用的旧会话也一起废掉。
+     */
+    private suspend fun refreshSessionFromModule() {
+        val res = com.fktm.app.water.CookiePuller.pull() ?: return
+        runCatching {
+            if (com.fktm.app.water.WaterSession.campusProbeOk(res.cookies)) {
+                com.fktm.app.water.WaterSession.adopt(getApplication(), res.cookies)
+            }
+        }
+        // 门锁是离线数据，不管会话能不能用都先收
+        runCatching { com.fktm.app.water.LockImport.apply(getApplication(), res.doorlocks, res.mvLocks) }
+        refresh()
     }
 
     /**

@@ -4,7 +4,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import org.json.JSONObject
 
 /**
  * 接收 LSPatch 模块（`lspatch-module`）发来的登录态。
@@ -27,15 +26,9 @@ class CookieImportReceiver : BroadcastReceiver() {
         if (intent.action != ACTION_COOKIES) return
         val raw = intent.getStringExtra(EXTRA_JSON) ?: return
 
-        val jar = runCatching {
-            val obj = JSONObject(raw)
-            val map = linkedMapOf<String, String>()
-            obj.keys().forEach { k ->
-                val v = obj.optString(k)
-                if (v.isNotBlank()) map[k] = v
-            }
-            map
-        }.getOrNull()
+        // 模块会推整包 {cookies, doorlocks, mvlocks}，旧版只推 cookie map，两种都要认
+        val env = ModuleEnvelope.parse(raw)
+        val jar = env?.cookies
 
         if (jar.isNullOrEmpty()) {
             Log.w(TAG, "cookie import: empty payload")
@@ -54,6 +47,14 @@ class CookieImportReceiver : BroadcastReceiver() {
             context.applicationContext, "importFromModule",
             WaterDiag.cookieSummary(jar),
         )
+        // 门锁一起到：离线钥匙不依赖 CM 校验，先入库
+        env?.let {
+            val applied = runCatching { LockImport.apply(context.applicationContext, it.doorlocks, it.mvLocks) }
+                .getOrDefault(LockImport.Applied())
+            if (applied.any) {
+                WaterDiag.log(context.applicationContext, "broadcastLocks", applied.toString())
+            }
+        }
         Log.d(TAG, "cookie import: ${jar.size} cookies from LSPatch module")
     }
 

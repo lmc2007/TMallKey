@@ -65,8 +65,6 @@ android {
 
     buildFeatures {
         compose = true
-        // Shizuku UserService 靠 AIDL 跨进程调用（在 shell 身份的独立进程里跑 logcat）
-        aidl = true
     }
 
     packaging {
@@ -93,9 +91,6 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
-    // Shizuku：借 shell 身份读 logcat（普通 App 从 Android 4.1 起读不到别的进程日志）
-    implementation("dev.rikka.shizuku:api:13.1.5")
-    implementation("dev.rikka.shizuku:provider:13.1.5")
 
     // 扫饮水机二维码：CameraX 出帧，ZXing 纯 Java 解码。
     // 刻意不用 ML Kit —— 那套要 Google Play 服务，国内 ROM 上不一定有。
