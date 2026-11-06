@@ -2,7 +2,16 @@
   "channel": "stable",
   "versionName": "2.1.4",
   "versionCode": 15,
-  "isReady": false,
+  "isReady": true,
   "releaseNotes": "fkTM 进程内跑通天猫校园 SecurityGuard，登录卡在 middletier init",
-  "assets": []
+  "releaseUrl": "https://github.com/lmc2007/TMallKey/releases/tag/v2.1.4",
+  "assets": [
+    {
+      "type": "universal-apk",
+      "platform": "android",
+      "url": "https://github.com/lmc2007/TMallKey/releases/download/v2.1.4/TMKey-2.1.4.apk",
+      "sha256": "850b27c3a41d5d4708636b27a712bd22cc4ca8e202e4dac0d37d382a7ecfd6c8",
+      "size": 2358694
+    }
+  ]
 }
