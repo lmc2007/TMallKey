@@ -320,7 +320,7 @@ python fktm/cli.py <cmd>
 | 帧长判定 | 10 个向量的精确长度、非法帧头、数据不足、分片缓冲（19 B 不完整 / 24 B 完整） |
 | 仿真闭环 | `mock_lock` 跑通 0D→13→0B，正误 key 两种结局 |
 
-**基线 54/54**。改协议层任何代码，先跑这个；改动 Kotlin 侧则跑 `testDebugUnitTest`（基线 61/61）。两边数值不一致 = 移植已漂移。
+**基线 54/54**。改协议层任何代码，先跑这个；改动 Kotlin 侧则跑 `testDebugUnitTest`（基线 83/83）。两边数值不一致 = 移植已漂移。
 
 ### 3.5 mock_lock 怎么仿真
 
@@ -336,13 +336,16 @@ python fktm/cli.py <cmd>
 
 ```
 ui/           MainScreen · WaterScreen · AboutScreen · UpdateCard · theme  (Compose，无业务)
-vm/           UnlockViewModel                       (状态 + 编排)
+vm/           UnlockViewModel · WaterViewModel        (状态 + 编排)
 ──────────────────────────────────────────────────  ← 业务边界
-ble/          BleLockClient                         (GATT + 连接生命周期)
-protocol/     VocProtocol                           (纯算法，零 Android 依赖)
-credential/   CredentialStore · LockCredential      (Keystore 加密存储)
+ble/          BleLockClient                          (GATT + 连接生命周期)
+protocol/     VocProtocol                            (纯算法，零 Android 依赖)
+credential/   CredentialStore · LockCredential       (Keystore 加密存储)
               RootGrabber · GrabForegroundService · LogcatParser
+mv/           MvBleClient · MvLockApi                (掌门神通在线开锁，AFF0/AFF1/AFF2)
+water/        WaterSession · CookiePuller · MtopClient · SgEngine · LockImport
 update/       AppUpdateRepository · UpdateManifest · ApkInstaller
+util/         NotificationPermission
 ```
 
 依赖方向**单向向下**：`ui → vm → ble/credential → protocol`。`protocol/` 不 import 任何 `android.*`，所以能在 JVM 单测里跑。
@@ -494,16 +497,45 @@ LSPatch 补丁版天猫校园里的模块在门锁页 `VocLockHelper.unlock(Cont
 GrabForegroundService（本 App，dataSync 前台服务）
         │ 把进程抬到前台优先级
         ▼
-RootGrabber ── su -M logcat ──► LogcatParser → LockCredential
+RootGrabber
+  ├─ scanHistory()   logcat -d 全量 dump，捞缓冲里已经存在的那次 unlock()
+  └─ streaming       busybox script -q -c "logcat -T 1 -s …" /dev/null
+        │                              ▲ 套 pty，理由见坑 3
+        ▼
+   LogcatParser → LockCredential
 ```
 
-两个必须记住的点：
+⚠️ **调用顺序不能改**：`RootGrabber.capture()` 必须排在 cookie 抓取**之前**
+（`MainScreen.RootGrabSection.start()`）。cookie 那条链里有 `campusProbeOk()` 网络探测，
+无网时要等连接超时（日志里是 `cookie pull: ConnectException`）；它一旦排在前面，
+logcat 要晚几十秒才挂上，而天猫校园 **60 s 内**就把 VOC 日志冲干净了。
+这是 `c5b173e`（MV 适配）引入的回归，2026-11-06 修回。
+
+四个必须记住的坑：
 
 1. **必须起前台服务**。用户点「抓取」后会切到天猫校园去开锁，此时 fkTM 在后台，
    ColorOS 会直接冻结进程（`OplusHansManager: freeze uid`），协程全停。
    → 必须**在 App 仍在前台时**启动 `GrabForegroundService`（Android 12+ 禁止后台启动前台服务）。
 2. **logcat 的 tag 是精确匹配**。`VocLockHelper` 匹配不到 `VocLockHelperV2`，
    必须写 `VocLockHelperV2:V`。
+3. **logcat 的 stdout 不能是裸 pipe**。`ProcessBuilder` 给子进程的 stdout 是 Pipe，
+   bionic stdio 在非 tty 上走 **4 KB 全缓冲** —— `-T 1` 的初始 dump 会 flush（所以看着像正常），
+   之后 follow 的输出全部卡在用户态缓冲里，永远到不了 Java 侧。
+   现场判定：`ls -l /proc/<pid>/fd/1` 是 `pipe:[…]`，同时天猫校园明明打了 `unlock:` 行而
+   fkTM 收到 0 行。解法是 `busybox script -q -c "logcat …" /dev/null` 套一层 pty（行缓冲）；
+   KernelSU 在 `/data/adb/ksu/bin/busybox`，Magisk 在 `/data/adb/magisk/busybox`，都没有则退化裸 logcat。
+   > 别用「重定向到文件再读」来验证管道 —— 文件重定向的初始 dump 同样会产出字节，会得到假阳性。
+4. **`reconnect()` 不打 key 日志**。只有首次 `unlock()` 建新会话才打
+   `unlock: macAddress: … activationKey: …`；会话复用后点开锁走 `reconnect()`，
+   日志里只有 `onDeviceFound / connect / isLinkEstablished`。所以 `scanHistory()` 要先兜一遍缓冲历史。
+
+**MV 抓取的判定条件**
+
+`FastBle` 日志里出现 MAC 不代表就是 MV 锁 —— `MAC_RE` 是
+`\b[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}\b`，任何六段冒号 hex 都会命中
+（时间、帧数据、别的设备地址都可能长这样）。误判的代价是把 VOC 用户导成一条
+**没有钥匙的 MV 凭证**，开锁必然失败。所以行里还必须含 `MVL` / `AFF0-2` / `zmst`
+之一才认（`MV_HINT`）。**宁可漏判，不误判。**
 
 > Shizuku UserService 抓取方案已于 2026-11-01 移除：免 root 场景已由上面的模块自动同步
 > 覆盖，不再维护两套抓取实现。`aidl/`、`LogcatGrabService`、`ShizukuLogcatGrabber`
@@ -576,7 +608,7 @@ python fktm/cli.py battery
 python fktm/cli.py hold --seconds 300
 ```
 
-**两条基线**：Python `54/54`、Android `61/61`。改协议层两边都要跑。
+**两条基线**：Python `54/54`、Android `83/83`。改协议层两边都要跑。
 
 ### 5.3 日志与排障
 
@@ -587,6 +619,21 @@ adb logcat -s fkTMBle:D       # 仅 BLE 层
 
 `BleLockClient.note()` 每条都带相对时间戳 `t=xxx.xxxs`，`clearLog()` 在每次操作前重置基准 —— UI 上只显示本次。
 
+抓取过程有独立日志，前缀 `grab:`，排障先看它走到哪一步：
+
+```bash
+adb logcat -d -s fkTM:D | grep "grab:"
+# grab: capture start, timeout=900000ms
+# grab: history 0B 1L 141ms hit=false        ← 缓冲里有没有历史命中
+# grab: history miss, fallback to streaming
+# grab: cmd=BB=$(command -v busybox …)       ← 实际执行的命令，确认 pty 分支有没有走
+# grab: streaming up
+# grab: line 11-06 … VocLockHelperV2: unlock: macAddress: … activationKey: 0123ab…cdef(len=32)
+```
+
+key 在日志里只打前 6 后 4 + 长度，不落明文。
+⚠️ 天猫校园刷屏很凶，fkTM 的日志会被一起挤掉 —— **当场看**，几十秒就没了。
+
 常见失败 → 定位：
 
 | 现象 | 大概率原因 |
@@ -595,8 +642,12 @@ adb logcat -s fkTMBle:D       # 仅 BLE 层
 | `建立加密链路失败：activationKey 不匹配` | key 不属于这把锁；或 `13` 请求被写成了密文帧 |
 | 开锁无响应但 13 成功 | 末包 sleep 没去掉 / 包间隔太短被锁丢包 |
 | `GATT 写入失败` | 连接被抢；需要退到后台让出再重连 |
-| 抓取一直转圈 | UserService 僵尸进程（见 4.8 坑 2） |
-| 抓取成功但切后台就失败 | 没起前台服务（坑 3） |
+| 抓取一直转圈，最后超时 | 天猫校园刷屏太凶，日志在缓冲里存活 < 60 s —— 点完抓取**立刻**去开锁（4.8） |
+| 抓取成功但切后台就失败 | 没起前台服务（4.8 坑 1） |
+| 门开了却抓不到钥匙 | 走了 `reconnect()`，不打 key 日志 —— 强制停止天猫校园重进（4.8 坑 4） |
+| 抓到的 key 是全 0 / 全 A | 调试注入的假日志，清缓冲重抓 |
+| 抓到了但 App 一行日志都没收到 | logcat stdout 是 pipe，4 KB 全缓冲（4.8 坑 3）：`ls -l /proc/<pid>/fd/1` |
+| 抓取耗时明显偏长（几十秒才开始等） | cookie 抓取里的网络探测挡在 capture 前面了（4.8 顺序警告） |
 | `No Bluetooth adapter found`（PC） | 重启恢复，别改代码 |
 
 ---
@@ -670,7 +721,7 @@ cp fktm/p0_capture.bat docs/p0_capture.bat
 4. VocProtocol.kt  常量 + frameXxx() 方法
 5. BleLockClient.kt  加 public suspend fun
 6. UnlockViewModel + MainScreen 接按钮
-7. 跑 selftest(54+N) 和 testDebugUnitTest(61+M)
+7. 跑 selftest(54+N) 和 testDebugUnitTest(83+M)
 ```
 
 ⚠️ 先用 `mock_lock` 跑通再上真机。真机上一条错误命令可能触发锁体保护（`0c` 系统锁定）。

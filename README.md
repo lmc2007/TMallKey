@@ -143,9 +143,12 @@ TMallKey/
 │
 └── fktm-android/               Android App（Kotlin + Jetpack Compose）
     └── app/src/main/java/com/fktm/app/
-        ├── protocol/             协议层（Kotlin 版）
+        ├── protocol/             协议层（Kotlin 版，零 Android 依赖）
         ├── ble/                  连接管理、连接复用与预连接
-        ├── credential/           凭证存储（Keystore 加密）与 logcat 抓取
+        ├── credential/           凭证存储（Keystore）、logcat 抓取与抓取前台服务
+        ├── mv/                   掌门神通锁（MV）在线开锁
+        ├── water/                饮水：CM 会话、模块同步、mtop 客户端
+        ├── vm/                   UnlockViewModel / WaterViewModel
         ├── update/               应用内检查更新与下载安装
         └── ui/                   Compose 界面
 ```
@@ -184,7 +187,7 @@ python cli.py battery --key <activationKey> --address <MAC>
 
 ```bash
 cd fktm-android
-./gradlew testDebugUnitTest      # 单元测试 61 项
+./gradlew testDebugUnitTest      # 单元测试 83 项
 ./gradlew assembleDebug          # 产物：app/build/outputs/apk/debug/
 ```
 
@@ -261,8 +264,13 @@ https://gh-proxy.com/https://github.com/lmc2007/TMallKey/releases/latest/downloa
 
 1. 在 KernelSU / Magisk 里给 TMallKey 授权（首次点抓取会自动弹框）；
 2. TMallKey → 门锁页 → 「+ 添加门锁凭证」→ 点「**root 抓取**」；
-3. 切到天猫校园**点一次开锁** —— 钥匙自动填入表单，饮水登录态也同时导入
+3. **立刻**切到天猫校园点一次开锁 —— 钥匙自动填入表单，饮水登录态也同时导入
    （接水功能立即可用，不用再去饮水页单独导入）。
+
+> 两个必须记住的点：
+> **① 点完抓取别磨蹭** —— 天猫校园刷屏极凶，VOC 日志在缓冲区里活不过 1 分钟；
+> **② 必须是一次「新会话」开锁** —— 如果刚才已经开过一次门，先把天猫校园**强制停止**
+> 再重进，否则它走 `reconnect()` 复用会话，压根不会打印钥匙。
 
 #### 电脑 adb 抓取（排障用）
 
@@ -381,13 +389,25 @@ macAddress    : AA:BB:CC:DD:EE:FF
 **先确认一件事：天猫校园这次开锁到底有没有成功？**
 门必须真的开了，才有日志可抓。先别急着怀疑 TMallKey。
 
+还有一个前提容易被忽略：**钥匙只在「新会话」开锁时才会被打进日志**。
+天猫校园进程活着、会话被复用时点开锁走的是 `reconnect()`，那条带 `activationKey` 的日志
+**压根不会产生**，等多久都没用。所以顺序永远是：**先点「抓取」，再去点开锁**。
+
+**手机内 root 抓取**
+
+| 现象 | 检查 |
+|---|---|
+| 一直转圈，最后超时 | 天猫校园刷屏极凶，VOC 日志在环形缓冲里活不过 60 s。点完抓取**立刻**去开锁，别隔几分钟 |
+| 门开了但抓不到 | 大概率走了 `reconnect()`（复用会话，不打钥匙日志）。到系统设置里**强制停止天猫校园**，重进再点一次开锁 |
+| 抓到的不是这把锁 | 缓冲里还留着更早那次开锁的日志。核对「门锁地址」再点保存；实在不行手工填 |
+
 **电脑 adb 抓取**
 
 | 现象 | 检查 |
 |---|---|
 | `adb devices` 为空 | 换线/换口；手机上确认「允许 USB 调试」弹窗 |
 | 抓到的文件里没有 `activationKey` | 天猫校园必须先完成一次**成功的**开锁 |
-| 有日志但没有钥匙行 | 确认过滤标签里写了 `VocLockHelperV2`；天猫校园改版可能改了标签，先全量捞一次：`adb logcat \| findstr /i activationKey` |
+| 有日志但没有钥匙行 | 同上，可能是 `reconnect()` 路径，杀掉天猫校园重进再开一次；也确认过滤标签写了 `VocLockHelperV2`（tag 精确匹配，`VocLockHelper` 匹配不到 `V2`） |
 | `verify` 报缺少 pycryptodome | `pip install pycryptodome` |
 
 **都不行**：换个时机再试一次。凭证抓取依赖天猫校园把日志打出来，
@@ -403,8 +423,13 @@ macAddress    : AA:BB:CC:DD:EE:FF
 | `VocProtocolTest` | Kotlin 协议层（AES / 组帧 / 解帧 / 帧长判定 / 跨语言一致性） | 27 | 通过 |
 | `UpdateManifestParserTest` | 更新清单解析、资产挑选、下载地址解析、镜像源顺序 | 18 | 通过 |
 | `LogcatParserTest` | logcat 行解析 | 10 | 通过 |
+| `LockImportPlanTest` | 模块整包 → 凭证导入计划 | 8 | 通过 |
+| `CookieMergeTest` | 模块同步的 cookie 合并 | 7 | 通过 |
+| `ModuleEnvelopeTest` | 模块 Socket 报文解析 | 7 | 通过 |
+| `WaterTest` | 饮水会话与账号打码 | 6 | 通过 |
 
-协议层的任何改动，都必须让上述四套同时保持全绿。
+Kotlin 侧合计 **83** 项。协议层的任何改动，必须 Python 与 Kotlin 两侧同时保持全绿；
+两边数值不一致 = 移植已漂移。
 
 
 
@@ -424,6 +449,9 @@ macAddress    : AA:BB:CC:DD:EE:FF
 - **厂商后台冻结**：ColorOS 等激进的后台管理策略会冻结已进入后台的进程，
   导致依赖持续读取 logcat 的「一键抓凭证」功能在部分机型和场景下不稳定。
   开锁功能本身不受影响。
+- **抓取依赖天猫校园打日志**：`VocLockHelperV2` 只在**新会话**开锁时打印 `activationKey`，
+  复用会话的 `reconnect()` 路径不打；而且天猫校园自身刷屏极凶，这些日志在环形缓冲里存活不到 1 分钟。
+  所以抓取窗口内必须完成一次「新会话」开锁 —— 顺序永远是「先点抓取，再去开锁」。
 - **BLE 并发**：同一把锁可被两台设备同时连接（实测并发数 ≥ 2），
   但并发会显著拖慢链路建立（冷连接由约 2 s 劣化至约 7.6 s）。
   App 因此采用「退到后台即让出连接」的策略。
