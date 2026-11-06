@@ -401,10 +401,12 @@ private fun RootGrabSection(
             GrabForegroundService.start(context)
             state = GrabState.Running
             try {
-                // ① 先等开锁：用户此刻手里可能还没打开天猫校园页面，
-                //    这时读到的 cookie2 大概率是未激活的 —— 等开锁日志出现
-                //    （说明用户刚用过天猫校园），再抓 cookie 才是新鲜有效的。
-                //    VOC / MV 谁先出现算谁（RootGrabber.Outcome）。
+                // ① 第一件事：立刻挂上 logcat。
+                //    天猫校园刷屏极凶，VocLockHelperV2 的日志在环形缓冲里活不过 60 s。
+                //    cookie 抓取里的 campusProbeOk 是**网络探测**，无网时要等超时 ——
+                //    它一旦排在前面，用户点完开锁回来时日志早被冲没了（2026-11-06 回归）。
+                val outcome = RootGrabber.capture(timeoutMs = 900_000L)
+
                 // ② 开锁已发生 → 抓 cookie（此刻的 cookie2 刚被 native sync 过，有效）
                 val cookieMsg = try {
                     val jar = com.fktm.app.water.WaterSession.importFromDevice(context)
@@ -426,7 +428,7 @@ private fun RootGrabSection(
                     "登录态导入失败（${e.message}）"
                 }
 
-                state = when (val outcome = RootGrabber.capture(timeoutMs = 240_000L)) {
+                state = when (outcome) {
                     is RootGrabber.Outcome.VocHit -> {
                         onHit(outcome.hit)
                         val keyMsg = if (outcome.hit.isComplete) {
@@ -445,7 +447,7 @@ private fun RootGrabSection(
                                 "—— 每次开锁需联网，在门锁卡片上点「开锁」即可",
                         )
                     }
-                    RootGrabber.Outcome.None -> GrabState.Error("4 分钟内没等到开锁日志，已取消。$cookieMsg")
+                    RootGrabber.Outcome.None -> GrabState.Error("15 分钟内没等到开锁日志，已取消。$cookieMsg")
                 }
             } finally {
                 GrabForegroundService.stop(context)
