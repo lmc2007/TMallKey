@@ -1,0 +1,7 @@
+# v2.1.4
+
+新增：
+- fkTM 进程内跑通天猫校园 SecurityGuard，登录卡在 middletier init
+
+修复：
+- root 抓取收不到实时日志（logcat 管道 4KB 全缓冲）
