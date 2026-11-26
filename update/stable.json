@@ -2,7 +2,16 @@
   "channel": "stable",
   "versionName": "2.1.5",
   "versionCode": 16,
-  "isReady": false,
+  "isReady": true,
   "releaseNotes": "add Aptabase launch telemetry",
-  "assets": []
+  "releaseUrl": "https://github.com/lmc2007/TMallKey/releases/tag/v2.1.5",
+  "assets": [
+    {
+      "type": "universal-apk",
+      "platform": "android",
+      "url": "https://github.com/lmc2007/TMallKey/releases/download/v2.1.5/TMKey-2.1.5.apk",
+      "sha256": "79714f957d46c20a9e4aea9cf5be3c94e04cfe9ceef2515bcd5bc0f4e5dc77a6",
+      "size": 2407142
+    }
+  ]
 }
