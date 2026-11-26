@@ -1,8 +1,8 @@
 {
   "channel": "stable",
-  "versionName": "2.1.7",
-  "versionCode": 18,
+  "versionName": "2.1.8",
+  "versionCode": 19,
   "isReady": false,
-  "releaseNotes": "add telemetry switch to About",
+  "releaseNotes": "show changelogs for all skipped releases",
   "assets": []
 }
