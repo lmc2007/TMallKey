@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -20,18 +21,25 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fktm.app.R
+import com.fktm.app.telemetry.TelemetrySettings
 import com.fktm.app.update.AppUpdateRepository
 import com.fktm.app.update.UpdateSettings
 import com.fktm.app.update.UpdateSources
@@ -43,7 +51,11 @@ import com.fktm.app.update.UpdateSources
  * 内容越加越多（教程、下载、更新设置），独立成 tab 才不会把开锁主界面挤爆。
  */
 @Composable
-fun AboutScreen(repo: AppUpdateRepository, settings: UpdateSettings) {
+internal fun AboutScreen(
+    repo: AppUpdateRepository,
+    settings: UpdateSettings,
+    telemetrySettings: TelemetrySettings,
+) {
     val context = LocalContext.current
     val version = remember(context) { appVersionName(context) }
 
@@ -64,6 +76,9 @@ fun AboutScreen(repo: AppUpdateRepository, settings: UpdateSettings) {
         AboutCard(version = version)
 
         Spacer(Modifier.height(14.dp))
+        TelemetryCard(settings = telemetrySettings)
+
+        Spacer(Modifier.height(14.dp))
         PatchGuideCard()
 
         Spacer(Modifier.height(14.dp))
@@ -74,6 +89,38 @@ fun AboutScreen(repo: AppUpdateRepository, settings: UpdateSettings) {
         UpdateCard(repo = repo, settings = settings)
 
         Spacer(Modifier.height(18.dp))
+    }
+}
+
+@Composable
+private fun TelemetryCard(settings: TelemetrySettings) {
+    var enabled by remember(settings) { mutableStateOf(settings.enabled) }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .toggleable(value = enabled, role = Role.Switch) { checked ->
+                    settings.enabled = checked
+                    enabled = checked
+                }
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("用量统计（遥测）", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "将功能使用事件发送到 Aptabase。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = enabled, onCheckedChange = null)
+        }
     }
 }
 

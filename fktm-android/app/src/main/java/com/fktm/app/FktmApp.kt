@@ -4,6 +4,7 @@ import android.app.Application
 import com.aptabase.Aptabase
 import com.fktm.app.ble.BleLockClient
 import com.fktm.app.credential.CredentialStore
+import com.fktm.app.telemetry.TelemetrySettings
 import com.fktm.app.update.ApkInstaller
 import com.fktm.app.update.AppUpdateRepository
 import com.fktm.app.update.UpdateSettings
@@ -11,6 +12,8 @@ import com.fktm.app.update.UpdateSettings
 class FktmApp : Application() {
 
     val credentialStore: CredentialStore by lazy { CredentialStore(this) }
+
+    internal val telemetrySettings by lazy { TelemetrySettings(this) }
 
     /**
      * 进程级共享 BLE 客户端（提速关键）。

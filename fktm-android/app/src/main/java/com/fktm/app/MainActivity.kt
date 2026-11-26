@@ -138,7 +138,11 @@ class MainActivity : ComponentActivity() {
                                 onOpenAbout = { openTab(Screen.ABOUT) },
                             )
                             Screen.WATER.tabIndex -> WaterScreen(vm = waterVm)
-                            else -> AboutScreen(repo = repo, settings = app.updateSettings)
+                            else -> AboutScreen(
+                                repo = repo,
+                                settings = app.updateSettings,
+                                telemetrySettings = app.telemetrySettings,
+                            )
                         }
                     }
                 }

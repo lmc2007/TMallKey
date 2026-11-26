@@ -7,7 +7,7 @@ import org.junit.Test
 class AppTelemetryTest {
     @Test fun eventsUseFixedNamesAndProperties() {
         val events = mutableListOf<Pair<String, Map<String, String>>>()
-        val telemetry = AppTelemetry { event, properties -> events += event to properties }
+        val telemetry = AppTelemetry(isEnabled = { true }) { event, properties -> events += event to properties }
 
         telemetry.appStarted()
         telemetry.screenViewed(AppTelemetry.Screen.WATER)
@@ -30,7 +30,27 @@ class AppTelemetryTest {
     }
 
     @Test fun telemetryFailureDoesNotInterruptAppActions() {
-        val telemetry = AppTelemetry { _, _ -> throw IllegalStateException("SDK unavailable") }
+        val telemetry = AppTelemetry(isEnabled = { true }) { _, _ -> throw IllegalStateException("SDK unavailable") }
         telemetry.waterUnlockResult(AppTelemetry.WaterUnlockResult.SUCCESS)
+    }
+
+    @Test fun disablingTelemetryDropsAllEventsUntilReenabled() {
+        var enabled = true
+        val events = mutableListOf<String>()
+        val telemetry = AppTelemetry(isEnabled = { enabled }) { event, _ -> events += event }
+
+        telemetry.appStarted()
+        enabled = false
+        telemetry.appStarted()
+        telemetry.screenViewed(AppTelemetry.Screen.WATER)
+        telemetry.waterUnlockResult(AppTelemetry.WaterUnlockResult.FAILED)
+        telemetry.waterDeviceAdded(AppTelemetry.AddMethod.MANUAL, success = true)
+        telemetry.waterSortChanged(WaterDeviceSortMode.RECENT)
+        telemetry.doorUnlockResult(AppTelemetry.DoorMode.VOC, AppTelemetry.DoorSource.LIST, success = false)
+        assertEquals(listOf("app_started"), events)
+
+        enabled = true
+        telemetry.screenViewed(AppTelemetry.Screen.ABOUT)
+        assertEquals(listOf("app_started", "screen_view"), events)
     }
 }

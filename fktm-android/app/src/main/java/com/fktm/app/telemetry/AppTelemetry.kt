@@ -1,10 +1,14 @@
 package com.fktm.app.telemetry
 
 import com.aptabase.Aptabase
+import com.fktm.app.FktmApp
 import com.fktm.app.water.WaterDeviceSortMode
 
 /** The event schema accepts only fixed values, so device and account data stay in app code. */
-internal class AppTelemetry(private val send: (String, Map<String, String>) -> Unit) {
+internal class AppTelemetry(
+    private val isEnabled: () -> Boolean,
+    private val send: (String, Map<String, String>) -> Unit,
+) {
     enum class Screen(val tabIndex: Int) { DOOR_LOCKS(0), WATER(1), ABOUT(2) }
     enum class WaterUnlockResult { SUCCESS, FAILED, UNCONFIRMED }
     enum class AddMethod { QR, MANUAL }
@@ -39,13 +43,15 @@ internal class AppTelemetry(private val send: (String, Map<String, String>) -> U
 
     private fun track(event: String, vararg properties: Pair<String, String>) {
         try {
-            send(event, properties.toMap())
+            if (isEnabled()) send(event, properties.toMap())
         } catch (_: Exception) {
             // A telemetry failure must not interrupt an app action.
         }
     }
 
     companion object {
-        val instance = AppTelemetry { event, properties -> Aptabase.instance.trackEvent(event, properties) }
+        val instance = AppTelemetry(isEnabled = { FktmApp.instance.telemetrySettings.enabled }) { event, properties ->
+            Aptabase.instance.trackEvent(event, properties)
+        }
     }
 }
