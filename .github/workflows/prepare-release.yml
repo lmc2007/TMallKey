@@ -34,7 +34,7 @@ on:
           - auto+extra
           - manual
       changelog_extra:
-        description: "补充 / 手写的更新内容（多行；manual 模式必填）"
+        description: '补充 / 手写的更新内容（用 \n 换行，例如 - 第一条\n- 第二条；manual 模式必填）'
         required: false
         type: string
       release_notes:

@@ -127,10 +127,14 @@ Actions → Prepare Version Update → Run workflow：
 | `version_name` | 留空 = 当前补丁号 +1（例如 `1.0.0` → `1.0.1`） |
 | `version_code` | 留空 = 当前 +1。**必须递增**，客户端靠它判新旧 |
 | `changelog_mode` | `auto` = 从上次发版以来的提交自动整理；`auto+extra` = 自动 + 补充；`manual` = 只用手写内容 |
-| `changelog_extra` | 补充 / 手写的更新内容，多行。`manual` 模式必填 |
+| `changelog_extra` | 补充 / 手写的更新内容。网页输入框中用 `\n` 换行，`manual` 模式必填 |
 | `release_notes` | 清单里的一句话简介，留空自动取第一条要点 |
 | `dry_run` | 只预览，不写文件、不提交。第一次可以先这样跑一遍 |
 | `trigger_release_after` | 勾上 = 准备完自动接着触发 Release APK |
+
+在网页的 `changelog_extra` 单行输入框里，直接填 `- 第一条\n- 第二条`。
+`manual` 模式用 `\n\n` 留出一个空行，`auto+extra` 模式把每个非空行归入「其他」。
+如果要在单行输入里保留字面上的 `\n`，请写成 `\\n`。通过 CLI / API 提交真实多行文本时，可直接保留换行。
 
 它改三个文件并提交到 `main`：
 

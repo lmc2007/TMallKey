@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare Version Update 的核心脚本。
+r"""Prepare Version Update 的核心脚本。
 
 由 `.github/workflows/prepare-release.yml` 调用；也可以本地模拟：
 
@@ -10,7 +10,7 @@
     INPUT_VERSION_NAME     新 versionName，留空 = 当前补丁号 +1
     INPUT_VERSION_CODE     versionCode，留空 = 当前 + 1
     INPUT_CHANGELOG_MODE   auto | auto+extra | manual（默认 auto）
-    INPUT_CHANGELOG_EXTRA  补充 / 手写的更新内容（多行；manual 模式必填）
+    INPUT_CHANGELOG_EXTRA  补充 / 手写的更新内容（支持真实换行或单行 \n；manual 模式必填）
     INPUT_RELEASE_NOTES    清单里的一句话简介（留空自动取第一条要点）
     INPUT_RELEASE_BRANCH   发布分支（默认 main），必须与当前分支一致
     INPUT_DRY_RUN          true/false，只预览不写文件、不提交
@@ -213,12 +213,26 @@ def first_bullet(sections: dict) -> str:
     return ""
 
 
+def normalize_changelog_extra(extra: str) -> str:
+    extra = extra.replace("\r\n", "\n").replace("\r", "\n")
+    # 已经有真实换行时，保留正文中的字面量（例如代码示例里的 \n）。
+    if "\n" in extra:
+        return extra.strip()
+
+    def expand(match: re.Match) -> str:
+        count = len(match[1])
+        suffix = "\n" if count % 2 else "n"
+        return "\\" * (count // 2) + suffix
+
+    return re.sub(r"(\\+)n", expand, extra).strip()
+
+
 def build_changelog(version_name: str, mode: str, extra: str) -> tuple:
-    extra = extra.strip()
+    extra = normalize_changelog_extra(extra)
     if mode == "manual":
         if not extra:
             fail("changelog_mode=manual 时必须填写 changelog_extra")
-        body = f"# v{version_name}\n\n{extra.strip()}\n"
+        body = f"# v{version_name}\n\n{extra}\n"
         default_notes = extra.splitlines()[0].lstrip("-* ").strip()
         return body, default_notes
 
@@ -274,7 +288,7 @@ def main() -> None:
     version_name = env("INPUT_VERSION_NAME")
     version_code_raw = env("INPUT_VERSION_CODE")
     mode = env("INPUT_CHANGELOG_MODE", "auto") or "auto"
-    extra = env("INPUT_CHANGELOG_EXTRA")
+    extra = os.environ.get("INPUT_CHANGELOG_EXTRA", "")
     release_notes = env("INPUT_RELEASE_NOTES")
     dry_run = env_bool("INPUT_DRY_RUN")
 
