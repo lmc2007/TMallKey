@@ -1,6 +1,7 @@
 package com.fktm.app.vm
 
 import android.app.Application
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -11,13 +12,17 @@ import com.fktm.app.ble.BleDisabledException
 import com.fktm.app.ble.BleLockClient
 import com.fktm.app.ble.BlePermissionException
 import com.fktm.app.ble.BleUnavailableException
+import com.fktm.app.credential.CredentialBackup
 import com.fktm.app.credential.LockCredential
 import com.fktm.app.telemetry.AppTelemetry
 import com.fktm.app.telemetry.AppTelemetry.DoorMode
 import com.fktm.app.telemetry.AppTelemetry.DoorSource
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.IOException
 
 sealed interface UnlockState {
     data object Idle : UnlockState
@@ -247,6 +252,52 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
         store.upsert(cred)
         refresh()
     }
+
+    // An encrypted export can survive a configuration change while the document picker is open.
+    private var preparedBackup: ByteArray? = null
+
+    internal suspend fun prepareCredentialBackup(password: String) {
+        preparedBackup = withBackupPassword(password) { chars ->
+            CredentialBackup.encode(store.loadForBackup(), chars)
+        }
+    }
+
+    internal suspend fun saveCredentialBackup(destination: Uri?) {
+        val data = preparedBackup
+        preparedBackup = null
+        if (destination == null) return
+        withContext(Dispatchers.IO) {
+            if (data == null) throw IOException("No prepared backup")
+            val output = fktmApp.contentResolver.openOutputStream(destination, "wt")
+                ?: throw IOException("Cannot open backup destination")
+            output.use { it.write(data) }
+        }
+    }
+
+    internal data class BackupRestore(val added: Int, val skipped: Int)
+
+    internal suspend fun restoreCredentialBackup(source: Uri, password: String): BackupRestore {
+        val result = withBackupPassword(password) { chars ->
+            val input = fktmApp.contentResolver.openInputStream(source)
+                ?: throw IOException("Cannot open backup file")
+            val data = input.use(CredentialBackup::read)
+            val locks = CredentialBackup.decode(data, chars)
+            val added = store.restoreBackup(locks)
+            BackupRestore(added, locks.size - added)
+        }
+        refresh()
+        return result
+    }
+
+    private suspend fun <T> withBackupPassword(password: String, block: (CharArray) -> T): T =
+        withContext(Dispatchers.IO) {
+            val chars = password.toCharArray()
+            try {
+                block(chars)
+            } finally {
+                chars.fill('\u0000')
+            }
+        }
 
     fun removeCredential(address: String) {
         store.remove(address)

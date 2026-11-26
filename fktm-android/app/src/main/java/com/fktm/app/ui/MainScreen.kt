@@ -129,6 +129,9 @@ fun MainScreen(
 
         Spacer(Modifier.height(18.dp))
 
+        CredentialBackupActions(vm, onRestored = { showImport = false })
+        Spacer(Modifier.height(14.dp))
+
         if (locks.isEmpty() && !showImport) {
             EmptyState(onImport = { showImport = true }, onOpenAbout = onOpenAbout)
         } else {
@@ -554,7 +557,7 @@ private fun ImportPanel(
             Spacer(Modifier.height(6.dp))
             Text(
                 "可从 PC 端 fktm/credentials.json 直接粘贴 JSON；或手工填写。\n" +
-                        "钥匙只存本机 Keystore 加密区，不上云、不参与备份。",
+                        "凭证保存在本机 Keystore 加密区，可在开锁页手动导出加密备份。",
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
             )

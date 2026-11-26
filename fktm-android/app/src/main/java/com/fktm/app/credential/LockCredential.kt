@@ -6,7 +6,7 @@ import com.fktm.app.protocol.VocProtocol
  * 一把门锁的凭证。
  *
  * ⚠️ [activationKey] 就是**钥匙**：拿到它即可永久离线开锁。
- * 落盘时必须经 [CredentialStore] 用 Android Keystore 加密，绝不明文存储、绝不入云。
+ * 本机由 [CredentialStore] 用 Android Keystore 加密保存，手动备份由 [CredentialBackup] 加密。
  */
 data class LockCredential(
     val name: String,
