@@ -112,9 +112,9 @@ private fun TelemetryCard(settings: TelemetrySettings) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text("用量统计（遥测）", style = MaterialTheme.typography.titleSmall)
+                Text("允许遥测", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "将功能使用事件发送到 Aptabase。",
+                    "允许应用收集部分信息以完善本应用。应用不会收集您的隐私信息和门锁数据",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

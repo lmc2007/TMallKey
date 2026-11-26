@@ -34,13 +34,14 @@ import androidx.compose.ui.unit.sp
 import com.fktm.app.ble.BleLockClient
 import com.fktm.app.telemetry.AppTelemetry
 import com.fktm.app.telemetry.AppTelemetry.DoorSource
-import com.fktm.app.telemetry.AppTelemetry.Screen
 import com.fktm.app.ui.MainScreen
 import com.fktm.app.ui.WaterScreen
 import com.fktm.app.ui.theme.FktmTheme
 import com.fktm.app.util.NotificationPermission
 import com.fktm.app.vm.UnlockViewModel
 import com.fktm.app.vm.WaterViewModel
+
+private enum class MainTab(val index: Int) { DOOR_LOCKS(0), WATER(1), ABOUT(2) }
 
 /**
  * 主界面。也是「一键开锁」的落点：
@@ -74,7 +75,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         if (savedInstanceState == null) {
             AppTelemetry.instance.appStarted()
-            AppTelemetry.instance.screenViewed(Screen.DOOR_LOCKS)
         }
 
         val app = application as FktmApp
@@ -83,12 +83,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             FktmTheme {
                 // 底部导航：门锁 / 饮水 / 关于。功能各自独立成一栏。
-                var tab by rememberSaveable { mutableIntStateOf(Screen.DOOR_LOCKS.tabIndex) }
-                fun openTab(screen: Screen) {
-                    if (tab == screen.tabIndex) return
-                    tab = screen.tabIndex
-                    AppTelemetry.instance.screenViewed(screen)
-                }
+                var tab by rememberSaveable { mutableIntStateOf(MainTab.DOOR_LOCKS.index) }
 
                 var release by remember { mutableStateOf<com.fktm.app.update.UpdateRelease?>(null) }
                 var promptDismissed by rememberSaveable { mutableStateOf(false) }
@@ -109,20 +104,20 @@ class MainActivity : ComponentActivity() {
                     bottomBar = {
                         NavigationBar {
                             NavigationBarItem(
-                                selected = tab == Screen.DOOR_LOCKS.tabIndex,
-                                onClick = { openTab(Screen.DOOR_LOCKS) },
+                                selected = tab == MainTab.DOOR_LOCKS.index,
+                                onClick = { tab = MainTab.DOOR_LOCKS.index },
                                 icon = { Text("🔒", fontSize = 18.sp) },
                                 label = { Text("门锁") },
                             )
                             NavigationBarItem(
-                                selected = tab == Screen.WATER.tabIndex,
-                                onClick = { openTab(Screen.WATER) },
+                                selected = tab == MainTab.WATER.index,
+                                onClick = { tab = MainTab.WATER.index },
                                 icon = { Text("💧", fontSize = 18.sp) },
                                 label = { Text("饮水") },
                             )
                             NavigationBarItem(
-                                selected = tab == Screen.ABOUT.tabIndex,
-                                onClick = { openTab(Screen.ABOUT) },
+                                selected = tab == MainTab.ABOUT.index,
+                                onClick = { tab = MainTab.ABOUT.index },
                                 icon = { Text("ℹ️", fontSize = 18.sp) },
                                 label = { Text("关于") },
                             )
@@ -131,13 +126,13 @@ class MainActivity : ComponentActivity() {
                 ) { inner ->
                     Box(Modifier.padding(inner)) {
                         when (tab) {
-                            Screen.DOOR_LOCKS.tabIndex -> MainScreen(
+                            MainTab.DOOR_LOCKS.index -> MainScreen(
                                 vm = vm,
                                 onRequestPermissions = { ensurePermissions() },
                                 onEnsureNotificationPermission = { ensureNotificationPermission() },
-                                onOpenAbout = { openTab(Screen.ABOUT) },
+                                onOpenAbout = { tab = MainTab.ABOUT.index },
                             )
-                            Screen.WATER.tabIndex -> WaterScreen(vm = waterVm)
+                            MainTab.WATER.index -> WaterScreen(vm = waterVm)
                             else -> AboutScreen(
                                 repo = repo,
                                 settings = app.updateSettings,

@@ -9,15 +9,12 @@ internal class AppTelemetry(
     private val isEnabled: () -> Boolean,
     private val send: (String, Map<String, String>) -> Unit,
 ) {
-    enum class Screen(val tabIndex: Int) { DOOR_LOCKS(0), WATER(1), ABOUT(2) }
     enum class WaterUnlockResult { SUCCESS, FAILED, UNCONFIRMED }
     enum class AddMethod { QR, MANUAL }
     enum class DoorMode { VOC, MV }
     enum class DoorSource { LIST, SHORTCUT }
 
     fun appStarted() = track("app_started")
-
-    fun screenViewed(screen: Screen) = track("screen_view", "name" to screen.name.lowercase())
 
     fun waterUnlockResult(result: WaterUnlockResult) = track("water_unlock", "result" to result.name.lowercase())
 

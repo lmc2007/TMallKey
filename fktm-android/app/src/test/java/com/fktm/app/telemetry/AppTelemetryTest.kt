@@ -10,7 +10,6 @@ class AppTelemetryTest {
         val telemetry = AppTelemetry(isEnabled = { true }) { event, properties -> events += event to properties }
 
         telemetry.appStarted()
-        telemetry.screenViewed(AppTelemetry.Screen.WATER)
         telemetry.waterUnlockResult(AppTelemetry.WaterUnlockResult.UNCONFIRMED)
         telemetry.waterDeviceAdded(AppTelemetry.AddMethod.QR, success = false)
         telemetry.waterSortChanged(WaterDeviceSortMode.CUSTOM)
@@ -19,7 +18,6 @@ class AppTelemetryTest {
         assertEquals(
             listOf(
                 "app_started" to emptyMap(),
-                "screen_view" to mapOf("name" to "water"),
                 "water_unlock" to mapOf("result" to "unconfirmed"),
                 "water_device_add" to mapOf("method" to "qr", "result" to "failed"),
                 "water_sort_mode_changed" to mapOf("mode" to "custom"),
@@ -42,7 +40,6 @@ class AppTelemetryTest {
         telemetry.appStarted()
         enabled = false
         telemetry.appStarted()
-        telemetry.screenViewed(AppTelemetry.Screen.WATER)
         telemetry.waterUnlockResult(AppTelemetry.WaterUnlockResult.FAILED)
         telemetry.waterDeviceAdded(AppTelemetry.AddMethod.MANUAL, success = true)
         telemetry.waterSortChanged(WaterDeviceSortMode.RECENT)
@@ -50,7 +47,7 @@ class AppTelemetryTest {
         assertEquals(listOf("app_started"), events)
 
         enabled = true
-        telemetry.screenViewed(AppTelemetry.Screen.ABOUT)
-        assertEquals(listOf("app_started", "screen_view"), events)
+        telemetry.waterSortChanged(WaterDeviceSortMode.CUSTOM)
+        assertEquals(listOf("app_started", "water_sort_mode_changed"), events)
     }
 }
