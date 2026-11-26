@@ -8,14 +8,14 @@ permissions:
 
 jobs:
   build-dev:
-    if: github.ref == 'refs/heads/dev'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
     env:
       EXPECTED_CERT_SHA256: 14783decaa2141edc41e8864a0c6535939a36cffbd43ab3ddcc7a17454572906
       ANDROID_BUILD_TOOLS: '35.0.0'
 
     steps:
-      - name: Check out dev
+      - name: Check out selected branch
         uses: actions/checkout@v4
         with:
           persist-credentials: false

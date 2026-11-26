@@ -114,9 +114,9 @@ bash .github/scripts/export-signing-secrets.sh
 
 ### 构建 Dev 测试版
 
-把待测提交推到 `dev` 后，在 GitHub Actions 打开 **Build Dev APK**，选择 **Run workflow → dev**。构建完成后，从该次运行的 **Artifacts** 下载 `TMKey-dev-*` 并解压安装 APK。
+在 GitHub Actions 打开 **Build Dev APK**，选择 **Run workflow → main** 来构建 `main` 上的待测提交。使用 `dev` 分支开发时也可以选择 `dev`。构建完成后，从该次运行的 **Artifacts** 下载 `TMKey-dev-*` 并解压安装 APK。
 
-Dev 包复用正式版的仓库 Secrets、签名证书和 `com.fktm.app` 包名。显示版本带 `-dev`，`versionCode` 沿用分支中的设置，号较低时需先将 `dev` 同步到 `main` 才能覆盖已安装的正式版。产物保留 14 天。每次构建只上传 Actions 产物。
+Dev 包复用正式版的仓库 Secrets、签名证书和 `com.fktm.app` 包名。显示版本带 `-dev`，`versionCode` 沿用分支中的设置，覆盖安装时，构建包的 `versionCode` 需不低于手机上的已安装版本。产物保留 14 天。每次构建只上传 Actions 产物。
 
 ### 1. 跑 Prepare Version Update
 
