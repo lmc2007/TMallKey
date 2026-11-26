@@ -259,7 +259,7 @@ cd fktm-android
 |---|---|
 | 手机 | Android 8.0（API 26）以上，具备蓝牙 |
 | 天猫校园 | 已登录；开门还需已绑定该门锁、能正常开锁 |
-| TMallKey | 从[下载页](https://lmc2007.github.io/TMallKey/)或 [Releases](https://github.com/lmc2007/TMallKey/releases) 下载 APK 安装 |
+| TMallKey | 从[下载页](https://lmc2007.github.io/TMallKey/)或 [发布](https://github.com/lmc2007/TMallKey/releases) 下载 APK 安装 |
 | 补丁版天猫校园 | 免 root 取凭证 / 登录态**推荐**（与官方版同包名，只能装一个）—— 见下文与下载页 |
 
 > **门锁凭证是两样东西**
@@ -283,7 +283,7 @@ cd fktm-android
 
 #### 补丁版天猫校园（免 root，推荐）
 
-从 [Releases](https://github.com/lmc2007/TMallKey/releases/latest) 下载
+从 [发布](https://github.com/lmc2007/TMallKey/releases/latest) 下载
 **`tmcampus-5.0.0-lspatched.apk`**（天猫校园 · LSPatch 补丁版），
 或到[下载页](https://lmc2007.github.io/TMallKey/)点「下载补丁版天猫校园」。
 
@@ -523,9 +523,6 @@ Kotlin 侧合计 **83** 项。协议层的任何改动，必须 Python 与 Kotli
   `data_extraction_rules` 排除。
 - **登录态只留在本机。** 饮水的 `cookie2` 等价于校园身份：不上云、不外传、不写日志
   （日志里只出现打码后的账号）。
-- **使用统计**。Android App 向 Aptabase 美国区上报启动、门锁操作结果、饮水设备录入和解锁结果、
-  饮水设备排序切换。SDK 附带 App 版本、系统版本、语言及手机型号，应用只发送固定的操作方式和结果等枚举值。
-  可在「关于 → 允许遥测」随时关闭，设置会在重启后保留。
 - **测试侧**：所有向量均由假钥匙合成，断言依然逐字节锁定协议行为。
 
 ---
@@ -576,10 +573,6 @@ root 只是「从官方版里读一次 cookie」的捷径，读完就不再需�
 **需要联网吗？**
 开门不需要 —— 开锁全程离线，飞行模式下可用。**接水必须联网**（走天猫校园云端接口），
 应用内检查更新也要网络。两条链路互不影响。
-
-**接水要钱吗？**
-不要。直饮水机在 TMallKey 里按 **0 元**结单：解锁 → 按机器上的出水键 → 接完（或超时自动结束），
-订单金额为 0。洗浴等按量计费的设备不在支持范围内。
 
 **没有 root 能接水吗？**
 能。装一次补丁版天猫校园，在里面登录过就自动同步过来了 —— 之后既不需要它，也不需要 root。
