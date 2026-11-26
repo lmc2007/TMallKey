@@ -87,7 +87,7 @@ fun UpdatePromptDialog(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(
-                            release.changelog.ifBlank { "（该版本没有填写更新说明）" },
+                            release.changelogDisplayText,
                             fontSize = 11.sp,
                             lineHeight = 16.sp,
                             fontFamily = FontFamily.Monospace,

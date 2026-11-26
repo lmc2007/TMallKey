@@ -96,7 +96,7 @@ class AppUpdateRepository(
                 continue
             }
 
-            val release = manifest.toRelease(source, fetchChangelog(source, manifest.versionCode))
+            val release = manifest.toRelease(source, currentVersionCode)
 
             when {
                 // 陈旧镜像：这个源的版本不比当前新，不能据此断定「已是最新」，继续扫
@@ -170,20 +170,8 @@ class AppUpdateRepository(
         }
     }
 
-    private fun UpdateManifest.toRelease(source: UpdateSource, changelog: String?): UpdateRelease {
-        val picked = UpdateManifestParser.pickAsset(this)
-        return UpdateRelease(
-            source = source,
-            channel = channel,
-            versionName = versionName,
-            versionCode = versionCode,
-            minVersionCode = minVersionCode,
-            releaseNotes = releaseNotes.orEmpty(),
-            releaseUrl = releaseUrl ?: source.manifestUrl,
-            asset = picked?.let { UpdateAsset(it.type, it.url, it.sha256, it.size) },
-            changelogText = changelog.orEmpty(),
-        )
-    }
+    suspend fun loadChangelog(release: UpdateRelease): UpdateRelease =
+        loadUpdateChangelog(currentVersionCode, release) { code -> fetchChangelog(release.source, code) }
 
     // ---------------------------------------------------------------- 下载安装
 

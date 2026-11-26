@@ -85,6 +85,14 @@ def main() -> None:
     if changelog_text is None or not changelog_text.strip():
         fail(f"缺少或为空的 changelog：{changelog_file}")
 
+    history = {}
+    for file in changelog_file.parent.glob("*.changelog"):
+        if not re.fullmatch(r"[1-9][0-9]*", file.stem) or int(file.stem) > version_code:
+            continue
+        log = file.read_text(encoding="utf-8").strip()
+        if log:
+            history[file.stem] = log
+    manifest["changelogs"] = dict(sorted(history.items(), key=lambda entry: int(entry[0])))
     manifest["isReady"] = True
     manifest["releaseUrl"] = release_url
     manifest["assets"] = [

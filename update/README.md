@@ -69,6 +69,7 @@ update/
 |---|---|
 | `versionCode` | **必填**。与 App 的 `versionCode` 比较判新旧，每次发版必须递增 |
 | `versionName` | **必填**。展示给用户的版本号 |
+| `changelogs` | 发布时由脚本填充，键为 `versionCode`，值为各版本的完整日志。客户端展示已安装版本之后、目标版本及之前的日志 |
 | `isReady` | `false` 表示还在灰度/未上传完成 —— App 只提示「灰度中」，**不提供下载**。发版成功后才置 `true` |
 | `minVersionCode` | 可选。为将来的强制更新留的下界，当前 App 只读取不强制 |
 | `releaseNotes` | 纯文本简介。拿不到远端 changelog 时作为兜底 |

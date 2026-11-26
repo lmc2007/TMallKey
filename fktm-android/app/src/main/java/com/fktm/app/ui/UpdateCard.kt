@@ -20,6 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,6 +56,18 @@ fun UpdateCard(repo: AppUpdateRepository, settings: UpdateSettings) {
     var showSettings by remember { mutableStateOf(false) }
 
     val downloadState by repo.downloadState.collectAsStateWithLifecycle()
+    val release = (result as? UpdateCheckResult.UpdateAvailable)?.release
+        ?: (result as? UpdateCheckResult.Ignored)?.release
+
+    LaunchedEffect(release) {
+        if (release?.changelogLoading != true) return@LaunchedEffect
+        val loaded = repo.loadChangelog(release)
+        result = when (val current = result) {
+            is UpdateCheckResult.UpdateAvailable -> if (current.release == release) current.copy(release = loaded) else current
+            is UpdateCheckResult.Ignored -> if (current.release == release) current.copy(release = loaded) else current
+            else -> current
+        }
+    }
 
     fun runCheck(force: Boolean) {
         if (checking) return
@@ -103,9 +116,6 @@ fun UpdateCard(repo: AppUpdateRepository, settings: UpdateSettings) {
                     Text(if (checking) "检查中" else "检查更新", fontSize = 12.sp)
                 }
             }
-
-            val release = (result as? UpdateCheckResult.UpdateAvailable)?.release
-                ?: (result as? UpdateCheckResult.Ignored)?.release
 
             if (!checking) {
                 Spacer(Modifier.height(8.dp))
@@ -177,20 +187,11 @@ private fun ReleaseSection(
     )
     Spacer(Modifier.height(6.dp))
     Text(
-        release.changelog.ifBlank { "（该版本未提供更新说明）" },
+        release.changelogDisplayText,
         fontSize = 11.sp,
         lineHeight = 16.sp,
         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
     )
-
-    if (!release.changelog.isBlank() && release.changelog.length > 400) {
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "（更新说明较长，完整内容见发布页）",
-            fontSize = 10.sp,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-        )
-    }
 
     Spacer(Modifier.height(10.dp))
 

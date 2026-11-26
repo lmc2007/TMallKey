@@ -149,6 +149,9 @@ class MainActivity : ComponentActivity() {
 
                 val pending = release
                 if (pending != null && !promptDismissed) {
+                    LaunchedEffect(pending) {
+                        if (pending.changelogLoading) release = repo.loadChangelog(pending)
+                    }
                     UpdatePromptDialog(
                         release = pending,
                         downloadState = downloadState,

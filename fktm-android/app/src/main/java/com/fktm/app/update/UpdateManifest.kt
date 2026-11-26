@@ -17,6 +17,7 @@ data class UpdateManifest(
     val releaseNotes: String?,
     val releaseUrl: String?,
     val assets: List<UpdateManifestAsset>,
+    val changelogs: Map<Long, String> = emptyMap(),
 )
 
 data class UpdateManifestAsset(
@@ -61,6 +62,15 @@ object UpdateManifestParser {
             }
         }
 
+        val changelogs = buildMap {
+            val history = o.optJSONObject("changelogs") ?: return@buildMap
+            for (key in history.keys()) {
+                val code = key.toLongOrNull()?.takeIf { it > 0 } ?: continue
+                val text = (history.opt(key) as? String)?.trim()?.takeIf { it.isNotEmpty() } ?: continue
+                put(code, text)
+            }
+        }
+
         return UpdateManifest(
             channel = o.optString("channel", "stable").trim().ifEmpty { "stable" },
             versionName = versionName,
@@ -70,6 +80,7 @@ object UpdateManifestParser {
             releaseNotes = o.optString("releaseNotes", "").takeIf { it.isNotBlank() },
             releaseUrl = o.optString("releaseUrl", "").trim().ifEmpty { null },
             assets = assets,
+            changelogs = changelogs,
         )
     }
 

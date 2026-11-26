@@ -32,10 +32,18 @@ data class UpdateRelease(
     val releaseNotes: String,
     val releaseUrl: String,
     val asset: UpdateAsset?,
-    /** 远端 changelog 正文；拉不到时为空串，[changelog] 会自动回落到 releaseNotes。 */
+    /** 从当前安装版本升级到此版本涉及的更新日志，按版本号降序。 */
     val changelogText: String = "",
+    val changelogLoading: Boolean = false,
 ) {
     val changelog: String get() = changelogText.ifBlank { releaseNotes }
+
+    val changelogDisplayText: String
+        get() = if (changelogLoading) {
+            listOf(changelog, "正在加载完整更新日志…").filter { it.isNotBlank() }.joinToString("\n\n")
+        } else {
+            changelog.ifBlank { "（该版本未提供更新说明）" }
+        }
 }
 
 /** 检查结果，五态。 */
