@@ -1,0 +1,14 @@
+# v2.1.5
+
+新增：
+- add Aptabase launch telemetry
+- add one-tap dispensing and device sorting
+
+更改：
+- 移除手机号短信登录（已作废），登录态只保留实际可用的两条路
+- 收敛 README 帧格式段落的多余空行
+- README 补齐饮水、MV 锁与登录态，不再只讲开锁
+- 补齐 root 抓取的真实坑与测试基线
+
+其他：
+- Update README.md
