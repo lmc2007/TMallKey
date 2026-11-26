@@ -129,9 +129,6 @@ fun MainScreen(
 
         Spacer(Modifier.height(18.dp))
 
-        CredentialBackupActions(vm, onRestored = { showImport = false })
-        Spacer(Modifier.height(14.dp))
-
         if (locks.isEmpty() && !showImport) {
             EmptyState(onImport = { showImport = true }, onOpenAbout = onOpenAbout)
         } else {
@@ -209,6 +206,8 @@ fun MainScreen(
             }
         }
 
+        Spacer(Modifier.height(18.dp))
+        CredentialBackupActions(vm, onRestored = { showImport = false })
         Spacer(Modifier.height(30.dp))
     }
 }
