@@ -2,7 +2,16 @@
   "channel": "stable",
   "versionName": "2.1.6",
   "versionCode": 17,
-  "isReady": false,
+  "isReady": true,
   "releaseNotes": "simplify water unlock and expand Aptabase events",
-  "assets": []
+  "releaseUrl": "https://github.com/lmc2007/TMallKey/releases/tag/v2.1.6",
+  "assets": [
+    {
+      "type": "universal-apk",
+      "platform": "android",
+      "url": "https://github.com/lmc2007/TMallKey/releases/download/v2.1.6/TMKey-2.1.6.apk",
+      "sha256": "f7afcba82f0dbc687fd839da13d767753e7e5535ff37f2b94d226a6d85b746b6",
+      "size": 2403882
+    }
+  ]
 }
