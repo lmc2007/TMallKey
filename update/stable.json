@@ -1,19 +1,10 @@
 {
   "channel": "stable",
-  "versionName": "2.1.8",
-  "versionCode": 19,
-  "isReady": true,
-  "releaseNotes": "show changelogs for all skipped releases",
-  "releaseUrl": "https://github.com/lmc2007/TMallKey/releases/tag/v2.1.8",
-  "assets": [
-    {
-      "type": "universal-apk",
-      "platform": "android",
-      "url": "https://github.com/lmc2007/TMallKey/releases/download/v2.1.8/TMKey-2.1.8.apk",
-      "sha256": "d07f0abdaa34eea4591fa2ce896191fe6bfdc7e18847592c0598930115263f88",
-      "size": 2418018
-    }
-  ],
+  "versionName": "2.1.9",
+  "versionCode": 20,
+  "isReady": false,
+  "releaseNotes": "1.尝试优化Shortcut快速开锁速度",
+  "assets": [],
   "changelogs": {
     "1": "# v1.0.0\n\n- 新增「检查更新」：6 个 GitHub 加速镜像 + 直连兜底，逐个回退；已挂的镜像下次自动排到队尾。\n- 新增陈旧镜像守卫：某个镜像返回的版本不比当前新时，继续扫其余源，而不是草率地报「已是最新」。\n- 新增应用内下载与安装：APK 落 `cache/updates/`，校验 ZIP 魔数与 sha256，同签名覆盖安装。\n- 更新日志随清单就近拉取（`update/changelogs/{versionCode}.changelog`）。\n- 说明：开锁全程依旧不联网，仅「检查更新」这一步需要网络。",
     "2": "# v1.0.1\n\n新增：\n- 应用内检查更新与下载安装\n\n更改：\n- README 补齐 MIT 许可证与 clone 指引\n\n其他：\n- 两阶段发布流水线（对标 yamibo-app）\n- Update README.md\n- 天猫校园宿舍 BLE 门禁「一点即开」独立 App\n- Initial commit",
