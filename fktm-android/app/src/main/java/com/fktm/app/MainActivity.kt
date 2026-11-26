@@ -41,6 +41,8 @@ import com.fktm.app.util.NotificationPermission
 import com.fktm.app.vm.UnlockViewModel
 import com.fktm.app.vm.WaterViewModel
 
+private const val MAIN_TAB_STATE_KEY = "main_tab"
+
 private enum class MainTab(val index: Int) { DOOR_LOCKS(0), WATER(1), ABOUT(2) }
 
 /**
@@ -52,6 +54,7 @@ class MainActivity : ComponentActivity() {
     private val vm: UnlockViewModel by viewModels()
     private val waterVm: WaterViewModel by viewModels()
     private var pendingAutoUnlock = false
+    private var tab by mutableIntStateOf(MainTab.DOOR_LOCKS.index)
 
     private val permLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
@@ -73,6 +76,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        savedInstanceState?.let { tab = it.getInt(MAIN_TAB_STATE_KEY, MainTab.DOOR_LOCKS.index) }
         if (savedInstanceState == null) {
             AppTelemetry.instance.appStarted()
         }
@@ -82,9 +86,6 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             FktmTheme {
-                // 底部导航：门锁 / 饮水 / 关于。功能各自独立成一栏。
-                var tab by rememberSaveable { mutableIntStateOf(MainTab.DOOR_LOCKS.index) }
-
                 var release by remember { mutableStateOf<com.fktm.app.update.UpdateRelease?>(null) }
                 var promptDismissed by rememberSaveable { mutableStateOf(false) }
                 val downloadState by repo.downloadState.collectAsStateWithLifecycle()
@@ -166,6 +167,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putInt(MAIN_TAB_STATE_KEY, tab)
+        super.onSaveInstanceState(outState)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -196,6 +202,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestAutoUnlock() {
+        tab = MainTab.DOOR_LOCKS.index
         if (hasBluetoothPermissions()) {
             autoUnlock()
         } else {

@@ -56,7 +56,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- 桌面快捷方式：一键开锁 -->
+            <!-- 开锁深链 -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -66,6 +66,13 @@
                 android:name="android.app.shortcuts"
                 android:resource="@xml/shortcuts" />
         </activity>
+
+        <activity
+            android:name=".UnlockShortcutActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.NoDisplay" />
 
         <!-- 逆向自检：在 fkTM 进程内加载天猫校园的 SecurityGuard（只供 adb 拉起） -->
         <activity

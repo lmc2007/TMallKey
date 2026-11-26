@@ -455,8 +455,14 @@ class BleLockClient(private val appContext: Context) {
                 }
                 note("write=${writeChar!!.uuid} notify=${notifyChar!!.uuid}")
                 enableNotify()
-                note("notify enabled (CCCD 已写入)")
+                note("notify subscription requested (CCCD)")
                 if (!done.isCompleted) done.complete(true)
+            }
+
+            override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+                if (g === gatt && descriptor.uuid == CCCD_UUID) {
+                    note("notify subscription callback (status=$status)")
+                }
             }
 
             // API 33+
@@ -580,7 +586,9 @@ class BleLockClient(private val appContext: Context) {
             for (attempt in 1..WRITE_RETRY) {
                 writeSignal = CompletableDeferred()
                 if (doWrite(packet)) {
-                    withTimeoutOrNull(WRITE_TIMEOUT_MS) { writeSignal.await() }
+                    if (withTimeoutOrNull(WRITE_TIMEOUT_MS) { writeSignal.await() } == null) {
+                        note("GATT write callback timeout (${WRITE_TIMEOUT_MS}ms)")
+                    }
                     note("TX  ${VocProtocol.bytesToHex(packet).uppercase()}")
                     sent = true
                     break
