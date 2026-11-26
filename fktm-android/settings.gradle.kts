@@ -1,8 +1,11 @@
 pluginManagement {
     repositories {
-        maven("https://maven.aliyun.com/repository/google")
-        maven("https://maven.aliyun.com/repository/central")
-        maven("https://maven.aliyun.com/repository/gradle-plugin")
+        // Use upstream repositories on GitHub-hosted CI to avoid regional mirror outages.
+        if (providers.environmentVariable("GITHUB_ACTIONS").orNull != "true") {
+            maven("https://maven.aliyun.com/repository/google")
+            maven("https://maven.aliyun.com/repository/central")
+            maven("https://maven.aliyun.com/repository/gradle-plugin")
+        }
         google()
         mavenCentral()
         gradlePluginPortal()
@@ -18,8 +21,10 @@ dependencyResolutionManagement {
             }
             filter { includeModule("com.github.aptabase", "aptabase-kotlin") }
         }
-        maven("https://maven.aliyun.com/repository/google")
-        maven("https://maven.aliyun.com/repository/central")
+        if (providers.environmentVariable("GITHUB_ACTIONS").orNull != "true") {
+            maven("https://maven.aliyun.com/repository/google")
+            maven("https://maven.aliyun.com/repository/central")
+        }
         google()
         mavenCentral()
     }
