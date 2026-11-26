@@ -16,9 +16,8 @@ object WaterDevices {
     private const val TAG = "fkTM"
     private const val PREF = "water_devices"
     private const val KEY = "list_v1"
-
-    /** 最多保留多少台，防止无限增长。 */
-    private const val MAX = 30
+    private const val SORT_MODE = "sort_mode"
+    private const val CUSTOM_ORDER = "custom_order"
 
     data class Saved(
         val resNo: String,
@@ -28,8 +27,40 @@ object WaterDevices {
         val lastUsedAt: Long,
     )
 
-    /** 按「最近使用」倒序。 */
     fun list(context: Context): List<Saved> {
+        val devices = readDevices(context)
+        if (sortMode(context) == WaterDeviceSortMode.RECENT) return WaterDeviceOrder.recent(devices)
+        val byId = devices.associateBy { it.resNo }
+        val ids = readCustomOrder(context) ?: WaterDeviceOrder.recent(devices).map { it.resNo }
+        return WaterDeviceOrder.customIds(devices, ids).map(byId::getValue)
+    }
+
+    fun sortMode(context: Context): WaterDeviceSortMode =
+        WaterDeviceOrder.mode(prefs(context).getString(SORT_MODE, null))
+
+    fun setSortMode(context: Context, mode: WaterDeviceSortMode) {
+        val editor = prefs(context).edit().putString(SORT_MODE, mode.name)
+        if (mode == WaterDeviceSortMode.CUSTOM && readCustomOrder(context) == null) {
+            val ids = WaterDeviceOrder.recent(readDevices(context)).map { it.resNo }
+            editor.putString(CUSTOM_ORDER, JSONArray(ids).toString())
+        }
+        editor.apply()
+    }
+
+    fun saveCustomOrder(context: Context, resNos: List<String>) {
+        val ids = WaterDeviceOrder.customIds(readDevices(context), resNos)
+        prefs(context).edit().putString(CUSTOM_ORDER, JSONArray(ids).toString()).apply()
+    }
+
+    private fun readCustomOrder(context: Context): List<String>? {
+        val raw = prefs(context).getString(CUSTOM_ORDER, null) ?: return null
+        return runCatching {
+            val array = JSONArray(raw)
+            List(array.length()) { array.optString(it) }
+        }.getOrNull()
+    }
+
+    private fun readDevices(context: Context): List<Saved> {
         val raw = prefs(context).getString(KEY, null) ?: return emptyList()
         return runCatching {
             val arr = JSONArray(raw)
@@ -43,14 +74,15 @@ object WaterDevices {
                     location = o.optString("location"),
                     lastUsedAt = o.optLong("lastUsedAt"),
                 )
-            }.sortedByDescending { it.lastUsedAt }
+            }.distinctBy { it.resNo }.take(WaterDeviceOrder.MAX_DEVICES)
         }.getOrElse { emptyList() }
     }
 
     /** 扫到一台设备就记下来（已有的更新信息，不动使用时间）。 */
-    fun remember(context: Context, device: WaterDevice, usedAt: Long = 0L) {
-        val list = list(context).toMutableList()
+    fun remember(context: Context, device: WaterDevice): Boolean {
+        val list = readDevices(context).toMutableList()
         val idx = list.indexOfFirst { it.resNo == device.resNo }
+        if (!WaterDeviceOrder.canRemember(list, device.resNo)) return false
         val old = if (idx >= 0) list[idx] else null
         val entry = Saved(
             resNo = device.resNo,
@@ -60,16 +92,17 @@ object WaterDevices {
                 device.building.ifBlank { null },
                 device.address.ifBlank { null },
             ).joinToString(" · ").ifBlank { old?.location.orEmpty() },
-            lastUsedAt = maxOf(old?.lastUsedAt ?: 0L, usedAt),
+            lastUsedAt = old?.lastUsedAt ?: 0L,
         )
         if (idx >= 0) list[idx] = entry else list.add(entry)
         save(context, list)
         Log.d(TAG, "water device remembered: ${entry.resNo}")
+        return true
     }
 
-    /** 解锁成功时把时间戳刷新，自动置顶。 */
+    /** 解锁成功时刷新使用时间。 */
     fun touch(context: Context, resNo: String) {
-        val list = list(context).toMutableList()
+        val list = readDevices(context).toMutableList()
         val idx = list.indexOfFirst { it.resNo == resNo }
         if (idx < 0) return
         list[idx] = list[idx].copy(lastUsedAt = System.currentTimeMillis())
@@ -77,12 +110,12 @@ object WaterDevices {
     }
 
     fun remove(context: Context, resNo: String) {
-        save(context, list(context).filterNot { it.resNo == resNo })
+        save(context, readDevices(context).filterNot { it.resNo == resNo })
     }
 
     private fun save(context: Context, list: List<Saved>) {
         val arr = JSONArray()
-        list.sortedByDescending { it.lastUsedAt }.take(MAX).forEach { d ->
+        list.forEach { d ->
             arr.put(
                 JSONObject().apply {
                     put("resNo", d.resNo)
@@ -93,22 +126,33 @@ object WaterDevices {
                 }
             )
         }
-        prefs(context).edit().putString(KEY, arr.toString()).apply()
+        val editor = prefs(context).edit().putString(KEY, arr.toString())
+        readCustomOrder(context)?.let { ids ->
+            editor.putString(CUSTOM_ORDER, JSONArray(WaterDeviceOrder.customIds(list, ids)).toString())
+        }
+        editor.apply()
     }
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+}
 
-    /** 「3 分钟前」这种。 */
-    fun relativeTime(ms: Long): String {
-        if (ms <= 0) return ""
-        val diff = System.currentTimeMillis() - ms
-        return when {
-            diff < 60_000 -> "刚刚"
-            diff < 3_600_000 -> "${diff / 60_000} 分钟前"
-            diff < 86_400_000 -> "${diff / 3_600_000} 小时前"
-            diff < 7 * 86_400_000L -> "${diff / 86_400_000} 天前"
-            else -> "${diff / (30 * 86_400_000L)} 个月前"
-        }
+enum class WaterDeviceSortMode { RECENT, CUSTOM }
+
+internal object WaterDeviceOrder {
+    const val MAX_DEVICES = 30
+
+    fun mode(value: String?): WaterDeviceSortMode =
+        WaterDeviceSortMode.entries.firstOrNull { it.name == value } ?: WaterDeviceSortMode.RECENT
+
+    fun recent(devices: List<WaterDevices.Saved>): List<WaterDevices.Saved> =
+        devices.sortedByDescending { it.lastUsedAt }
+
+    fun customIds(devices: List<WaterDevices.Saved>, preferred: List<String>): List<String> {
+        val existing = devices.map { it.resNo }.toSet()
+        return (preferred.filter { it in existing } + existing).distinct()
     }
+
+    fun canRemember(devices: List<WaterDevices.Saved>, resNo: String): Boolean =
+        devices.size < MAX_DEVICES || devices.any { it.resNo == resNo }
 }

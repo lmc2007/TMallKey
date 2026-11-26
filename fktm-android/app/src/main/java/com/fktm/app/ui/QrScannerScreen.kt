@@ -28,7 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -54,6 +54,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 @Composable
 fun QrScannerScreen(
     onDetected: (String) -> Unit,
+    onManualInput: () -> Unit,
     onClose: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -79,8 +80,11 @@ fun QrScannerScreen(
 
     DisposableEffect(granted) {
         if (!granted) return@DisposableEffect onDispose { }
+        val disposed = AtomicBoolean(false)
+        val main = ContextCompat.getMainExecutor(context)
         val future = ProcessCameraProvider.getInstance(context)
         future.addListener({
+            if (disposed.get()) return@addListener
             val provider = runCatching { future.get() }.getOrNull() ?: return@addListener
             val preview = Preview.Builder().build().also {
                 it.setSurfaceProvider(previewView.surfaceProvider)
@@ -96,7 +100,7 @@ fun QrScannerScreen(
                 val text = decode(proxy)
                 proxy.close()
                 if (text != null && found.compareAndSet(false, true)) {
-                    onDetected(text)
+                    main.execute { if (!disposed.get()) onDetected(text) }
                 }
             }
             runCatching {
@@ -108,11 +112,12 @@ fun QrScannerScreen(
                     analysis,
                 )
             }
-        }, ContextCompat.getMainExecutor(context))
+        }, main)
 
         onDispose {
+            disposed.set(true)
             runCatching {
-                ProcessCameraProvider.getInstance(context).get().unbindAll()
+                if (future.isDone) future.get().unbindAll()
             }
         }
     }
@@ -130,7 +135,7 @@ fun QrScannerScreen(
                 Button(onClick = { launcher.launch(Manifest.permission.CAMERA) }) {
                     Text("授予权限")
                 }
-                Button(onClick = onClose) { Text("手动输入") }
+                Button(onClick = onManualInput) { Text("手动输入") }
             }
         }
 
