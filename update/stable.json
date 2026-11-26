@@ -1,7 +1,7 @@
 {
   "channel": "stable",
-  "versionName": "2.1.9",
-  "versionCode": 20,
+  "versionName": "2.1.10",
+  "versionCode": 21,
   "isReady": false,
   "releaseNotes": "1.尝试优化Shortcut快速开锁速度",
   "assets": [],
