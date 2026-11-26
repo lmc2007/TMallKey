@@ -31,6 +31,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.sp
+import com.aptabase.Aptabase
 import com.fktm.app.ble.BleLockClient
 import com.fktm.app.ui.MainScreen
 import com.fktm.app.ui.WaterScreen
@@ -69,6 +70,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null) Aptabase.instance.trackEvent("app_started")
 
         val app = application as FktmApp
         val repo = app.updateRepository

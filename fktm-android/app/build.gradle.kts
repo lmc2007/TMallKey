@@ -83,6 +83,8 @@ android {
 }
 
 dependencies {
+    // Aptabase 0.1.0 uses Kotlin 2.2 metadata, which the current Kotlin compiler cannot read.
+    implementation("com.github.aptabase:aptabase-kotlin:0.0.9")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")

@@ -1,6 +1,7 @@
 package com.fktm.app
 
 import android.app.Application
+import com.aptabase.Aptabase
 import com.fktm.app.ble.BleLockClient
 import com.fktm.app.credential.CredentialStore
 import com.fktm.app.update.ApkInstaller
@@ -28,6 +29,8 @@ class FktmApp : Application() {
     }
 
     companion object {
+        private const val APTABASE_APP_KEY = "A-US-6454510402"
+
         lateinit var instance: FktmApp
             private set
     }
@@ -35,5 +38,6 @@ class FktmApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        Aptabase.instance.initialize(applicationContext, APTABASE_APP_KEY)
     }
 }
