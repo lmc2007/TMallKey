@@ -42,6 +42,9 @@ android {
 
     buildTypes {
         release {
+            if (providers.gradleProperty("tmkeyDevBuild").orNull == "true") {
+                versionNameSuffix = "-dev"
+            }
             isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

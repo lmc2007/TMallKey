@@ -1,0 +1,93 @@
+name: Build Dev APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-dev:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    env:
+      EXPECTED_CERT_SHA256: 14783decaa2141edc41e8864a0c6535939a36cffbd43ab3ddcc7a17454572906
+      ANDROID_BUILD_TOOLS: '35.0.0'
+
+    steps:
+      - name: Check out dev
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-disabled: true
+
+      - name: Install Android SDK components
+        run: sdkmanager 'platforms;android-36' "build-tools;${ANDROID_BUILD_TOOLS}"
+
+      - name: Configure Release signing
+        working-directory: fktm-android
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::缺少正式版签名 Secret：$name"
+              exit 1
+            fi
+          done
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | tr -d '\n\r ' | base64 --decode > tmkey-release.jks
+          printf 'storeFile=tmkey-release.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$KEYSTORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > keystore.properties
+
+      - name: Build signed Dev APK
+        working-directory: fktm-android
+        run: bash ./gradlew :app:assembleRelease -PtmkeyDevBuild=true --no-build-cache --console=plain
+
+      - name: Remove signing files
+        if: always()
+        working-directory: fktm-android
+        run: rm -f -- tmkey-release.jks keystore.properties
+
+      - name: Verify signature and stage APK
+        run: |
+          set -euo pipefail
+          apk=fktm-android/app/build/outputs/apk/release/app-release.apk
+          build_tools="$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS"
+          certs="$("$build_tools/apksigner" verify --print-certs "$apk")"
+          actual="$(printf '%s\n' "$certs" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
+          if [[ "$actual" != "$EXPECTED_CERT_SHA256" ]]; then
+            echo "::error::Dev APK 的签名证书与正式版不一致。"
+            exit 1
+          fi
+
+          package_info="$("$build_tools/aapt" dump badging "$apk" | sed -n '/^package: /p')"
+          if [[ "$package_info" != *"name='com.fktm.app' "* || "$package_info" != *"-dev'"* ]]; then
+            echo "::error::Dev APK 的包名或版本名称有误。"
+            exit 1
+          fi
+
+          mkdir -p dev-artifact
+          cp "$apk" "dev-artifact/TMKey-dev-${GITHUB_SHA:0:7}.apk"
+
+      - name: Upload Dev APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TMKey-dev-${{ github.run_number }}
+          path: dev-artifact/*.apk
+          if-no-files-found: error
+          retention-days: 14
