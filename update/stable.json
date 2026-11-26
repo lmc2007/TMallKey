@@ -35,6 +35,6 @@
     "18": "# v2.1.7\n\n新增：\n- add telemetry switch to About",
     "19": "# v2.1.8\n\n新增：\n- show changelogs for all skipped releases\n- add telemetry switch to About",
     "20": "# v2.1.9\n\n1.尝试优化Shortcut快速开锁速度",
-    "21": "# v2.1.10\n\n1.尝试优化Shortcut快速开锁速度 \n2.新增门锁凭证分享功能,同宿舍可直接分享导入,无需重复抓取"
+    "21": "# v2.1.10\n\n1.尝试优化Shortcut快速开锁速度 \n2.新增门锁凭证分享功能,同宿舍可直接分享导入,无需重复抓取 \n 有其他需求欢迎提issue~"
   }
 }
