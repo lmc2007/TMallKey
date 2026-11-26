@@ -24,15 +24,17 @@ import com.fktm.app.ui.AboutScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.sp
-import com.aptabase.Aptabase
 import com.fktm.app.ble.BleLockClient
+import com.fktm.app.telemetry.AppTelemetry
+import com.fktm.app.telemetry.AppTelemetry.DoorSource
+import com.fktm.app.telemetry.AppTelemetry.Screen
 import com.fktm.app.ui.MainScreen
 import com.fktm.app.ui.WaterScreen
 import com.fktm.app.ui.theme.FktmTheme
@@ -70,7 +72,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (savedInstanceState == null) Aptabase.instance.trackEvent("app_started")
+        if (savedInstanceState == null) {
+            AppTelemetry.instance.appStarted()
+            AppTelemetry.instance.screenViewed(Screen.DOOR_LOCKS)
+        }
 
         val app = application as FktmApp
         val repo = app.updateRepository
@@ -78,7 +83,13 @@ class MainActivity : ComponentActivity() {
         setContent {
             FktmTheme {
                 // 底部导航：门锁 / 饮水 / 关于。功能各自独立成一栏。
-                var tab by rememberSaveable { mutableIntStateOf(0) }
+                var tab by rememberSaveable { mutableIntStateOf(Screen.DOOR_LOCKS.tabIndex) }
+                fun openTab(screen: Screen) {
+                    if (tab == screen.tabIndex) return
+                    tab = screen.tabIndex
+                    AppTelemetry.instance.screenViewed(screen)
+                }
+
                 var release by remember { mutableStateOf<com.fktm.app.update.UpdateRelease?>(null) }
                 var promptDismissed by rememberSaveable { mutableStateOf(false) }
                 val downloadState by repo.downloadState.collectAsStateWithLifecycle()
@@ -98,20 +109,20 @@ class MainActivity : ComponentActivity() {
                     bottomBar = {
                         NavigationBar {
                             NavigationBarItem(
-                                selected = tab == 0,
-                                onClick = { tab = 0 },
+                                selected = tab == Screen.DOOR_LOCKS.tabIndex,
+                                onClick = { openTab(Screen.DOOR_LOCKS) },
                                 icon = { Text("🔒", fontSize = 18.sp) },
                                 label = { Text("门锁") },
                             )
                             NavigationBarItem(
-                                selected = tab == 1,
-                                onClick = { tab = 1 },
+                                selected = tab == Screen.WATER.tabIndex,
+                                onClick = { openTab(Screen.WATER) },
                                 icon = { Text("💧", fontSize = 18.sp) },
                                 label = { Text("饮水") },
                             )
                             NavigationBarItem(
-                                selected = tab == 2,
-                                onClick = { tab = 2 },
+                                selected = tab == Screen.ABOUT.tabIndex,
+                                onClick = { openTab(Screen.ABOUT) },
                                 icon = { Text("ℹ️", fontSize = 18.sp) },
                                 label = { Text("关于") },
                             )
@@ -120,13 +131,13 @@ class MainActivity : ComponentActivity() {
                 ) { inner ->
                     Box(Modifier.padding(inner)) {
                         when (tab) {
-                            0 -> MainScreen(
+                            Screen.DOOR_LOCKS.tabIndex -> MainScreen(
                                 vm = vm,
                                 onRequestPermissions = { ensurePermissions() },
                                 onEnsureNotificationPermission = { ensureNotificationPermission() },
-                                onOpenAbout = { tab = 2 },
+                                onOpenAbout = { openTab(Screen.ABOUT) },
                             )
-                            1 -> WaterScreen(vm = waterVm)
+                            Screen.WATER.tabIndex -> WaterScreen(vm = waterVm)
                             else -> AboutScreen(repo = repo, settings = app.updateSettings)
                         }
                     }
@@ -195,7 +206,7 @@ class MainActivity : ComponentActivity() {
         // 有多把锁时优先 VOC（离线、秒开）；只有 MV 就开 MV（在线取帧）
         val all = (application as FktmApp).credentialStore.load()
         val cred = all.firstOrNull { !it.isMv } ?: all.firstOrNull() ?: return
-        vm.unlock(cred)
+        vm.unlock(cred, DoorSource.SHORTCUT)
     }
 
     private fun ensurePermissions() {

@@ -7,6 +7,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.fktm.app.telemetry.AppTelemetry
+import com.fktm.app.telemetry.AppTelemetry.AddMethod
+import com.fktm.app.telemetry.AppTelemetry.WaterUnlockResult
 import com.fktm.app.water.MtopClient
 import com.fktm.app.water.MtopError
 import com.fktm.app.water.QrCodec
@@ -26,7 +29,7 @@ import kotlinx.coroutines.withContext
 /**
  * 饮水页的状态机。
  *
- * 三个阶段：登录 → 认出设备 → 解锁 / 结束。
+ * 负责登录、设备录入和解锁。接水结束由饮水机处理。
  * 每个网络动作只做一件事，失败就停在原地并把原因说清楚，
  * 不做「自动重试到成功」—— 真出水的东西宁可少动。
  */
@@ -48,7 +51,7 @@ class WaterViewModel : ViewModel() {
         val sortMode: WaterDeviceSortMode = WaterDeviceSortMode.RECENT,
         val processingResNo: String? = null,
         val deviceError: DeviceError? = null,
-        val activeDevice: WaterDevices.Saved? = null,
+        val lastUnlockedResNo: String? = null,
     )
 
     data class DeviceError(val resNo: String, val message: String)
@@ -58,14 +61,9 @@ class WaterViewModel : ViewModel() {
 
     private var api: WaterApi? = null
     private val quickUseFlow = WaterQuickUse()
-    private var activeClient: WaterApi? = null
-    private var apiAccountId = ""
-    private val canRefreshLogin get() = !state.busy && (quickUseFlow.active == null || state.needsLogin)
-    private val deviceActionsBlocked get() = state.busy || quickUseFlow.active != null
-
     /** 进页面时读一次登录态（加密存储里没有就标记 needsLogin）。 */
     fun prepare(context: Context) {
-        if (deviceActionsBlocked) return
+        if (state.busy) return
         reloadDevices(context)
         val jar = runCatching { WaterSession.ensure(context.applicationContext) }.getOrNull()
         if (jar == null) {
@@ -99,7 +97,7 @@ class WaterViewModel : ViewModel() {
      * 导入后立刻用 `member.user.login` 校验校园身份 —— 这是真正会拒绝普通淘宝会话的那个接口。
      */
     fun importFromDevice(context: Context) {
-        if (!canRefreshLogin) return
+        if (state.busy) return
         viewModelScope.launch {
             state = state.copy(busy = true, status = "正在读取天猫校园的登录态…", error = null)
             try {
@@ -179,10 +177,10 @@ class WaterViewModel : ViewModel() {
      * 这条通道不依赖 root，是「免 root」模式的主路径。
      */
     fun syncFromTmall(context: Context) {
-        if (!canRefreshLogin) return
+        if (state.busy) return
         viewModelScope.launch {
             val res = withContext(Dispatchers.IO) { CookiePuller.pull() } ?: return@launch
-            if (!canRefreshLogin) return@launch
+            if (state.busy) return@launch
             // 门锁凭证先入库：离线 BLE 静态数据，不依赖 CM 层，
             // 就算 cookie 会话还没绑校园档案也要收（否则 CM 探测失败会把它一起跳过）
             importLocks(context, res)
@@ -197,9 +195,7 @@ class WaterViewModel : ViewModel() {
                 return@launch
             }
 
-            if (!canRefreshLogin) return@launch
-            val active = quickUseFlow.active
-            if (active != null && !active.canRecoverWith(WaterSession.accountId(jar))) return@launch
+            if (state.busy) return@launch
             adoptSession(context, jar)
             val account = WaterSession.maskAccount(WaterSession.accountId(jar))
             WaterDiag.log(context.applicationContext, "pull", WaterDiag.cookieSummary(jar))
@@ -220,13 +216,8 @@ class WaterViewModel : ViewModel() {
 
     /** 登录页返回后调用。 */
     fun onLoggedIn(context: Context, jar: Map<String, String>) {
-        if (!canRefreshLogin) return
-        try {
-            adoptSession(context, jar)
-        } catch (e: IllegalStateException) {
-            state = state.copy(error = e.message)
-            return
-        }
+        if (state.busy) return
+        adoptSession(context, jar)
         state = state.copy(
             loggedIn = true,
             needsLogin = false,
@@ -253,7 +244,7 @@ class WaterViewModel : ViewModel() {
             // 导入时若被 `.taobao.com` 的同名 cookie 覆盖，就会回「用户未登录」，water/zmst 全挂。
             val jar = WaterSession.cached() ?: return@launch
             val cmOk = withContext(Dispatchers.IO) { WaterSession.campusProbeOk(jar) }
-            if (api !== client || deviceActionsBlocked) return@launch
+            if (api !== client || state.busy) return@launch
             WaterDiag.log(context.applicationContext, "cmProbe", if (cmOk) "OK" else "未激活")
             if (!cmOk) {
                 val launched = launchTmallDormPage(context.applicationContext)
@@ -272,7 +263,7 @@ class WaterViewModel : ViewModel() {
                 return@launch
             }
             val err = withContext(Dispatchers.IO) { client.selfCheck() }
-            if (api !== client || deviceActionsBlocked) return@launch
+            if (api !== client || state.busy) return@launch
             WaterDiag.log(context.applicationContext, "selfCheck", if (err == null) "OK" else err)
             Log.d(TAG, "water: selfCheck -> ${err ?: "OK"}")
             state = if (err == null) {
@@ -315,18 +306,19 @@ class WaterViewModel : ViewModel() {
     }
 
     fun logout(context: Context) {
-        if (deviceActionsBlocked) return
+        if (state.busy) return
         WaterSession.clear(context.applicationContext)
         api = null
         state = UiState(needsLogin = true, devices = state.devices, sortMode = state.sortMode)
     }
 
     /** 扫码与手动输入共用这个入口，仅录入设备。 */
-    fun addDevice(context: Context, input: String) {
-        if (deviceActionsBlocked || !state.loggedIn) return
+    internal fun addDevice(context: Context, input: String, method: AddMethod) {
+        if (state.busy || !state.loggedIn) return
         val scanned = QrCodec.parse(input)
         if (scanned == null) {
             state = state.copy(error = "无法识别饮水机，请检查二维码或设备号")
+            AppTelemetry.instance.waterDeviceAdded(method, success = false)
             return
         }
         state = state.copy(busy = true, status = "正在识别饮水机…", error = null, deviceError = null)
@@ -334,16 +326,19 @@ class WaterViewModel : ViewModel() {
             try {
                 val client = clientForAction(context)
                 val device = withContext(Dispatchers.IO) { client.deviceInfo(scanned.code) }
-                if (WaterDevices.remember(context.applicationContext, device)) {
+                val added = WaterDevices.remember(context.applicationContext, device)
+                if (added) {
                     reloadDevices(context)
                     state = state.copy(status = "已添加 ${device.name}")
                 } else {
                     state = state.copy(status = "", error = "已保存 30 台饮水机，请在管理设备中移除一台后再试")
                 }
+                AppTelemetry.instance.waterDeviceAdded(method, success = added)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 reportFailure(context, "add", e)
+                AppTelemetry.instance.waterDeviceAdded(method, success = false)
             } finally {
                 state = state.copy(busy = false)
             }
@@ -352,92 +347,71 @@ class WaterViewModel : ViewModel() {
 
     /** 一次明确点击，校验该设备并解锁。所有设备操作在请求期间保持锁定。 */
     fun quickUse(context: Context, resNo: String) {
-        if (deviceActionsBlocked || !state.loggedIn) return
-        val saved = state.devices.firstOrNull { it.resNo == resNo } ?: return
+        if (state.busy || !state.loggedIn) return
+        if (state.devices.none { it.resNo == resNo }) return
         state = state.copy(
             busy = true, status = "检查设备…", error = null,
-            processingResNo = resNo, deviceError = null,
+            processingResNo = resNo, deviceError = null, lastUnlockedResNo = null,
         )
         viewModelScope.launch {
             var sentUnlock = false
+            var result: WaterUnlockResult? = null
             try {
                 val client = clientForAction(context)
-                val active = quickUseFlow.start(
+                val unlocked = quickUseFlow.start(
                     resNo,
                     query = { withContext(Dispatchers.IO) { client.deviceInfo(it) } },
                     unlock = {
                         state = state.copy(status = "解锁中…")
                         sentUnlock = true
-                        withContext(Dispatchers.IO) { client.start(it).isvOrderId }
+                        withContext(Dispatchers.IO) { client.start(it) }
                     },
-                    accountId = apiAccountId,
-                ) ?: return@launch
-                activeClient = client
-                state = state.copy(
-                    activeDevice = saved.copy(name = active.device.name),
-                    status = "",
                 )
+                if (!unlocked) return@launch
+                result = WaterUnlockResult.SUCCESS
+
+                state = state.copy(lastUnlockedResNo = resNo, status = "")
                 WaterDevices.touch(context.applicationContext, resNo)
                 reloadDevices(context)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                val message = if (sentUnlock && WaterQuickUse.unlockUnconfirmed(e)) {
+                val unconfirmed = result == null && sentUnlock && WaterQuickUse.unlockUnconfirmed(e)
+                if (result == null) {
+                    result = if (unconfirmed) WaterUnlockResult.UNCONFIRMED else WaterUnlockResult.FAILED
+                }
+                val message = if (unconfirmed) {
                     "解锁结果未确认，请先查看饮水机状态再试"
                 } else explain(e)
                 reportFailure(context, "quickUse", e, DeviceError(resNo, message))
             } finally {
                 state = state.copy(busy = false, processingResNo = null)
+                result?.let { AppTelemetry.instance.waterUnlockResult(it) }
             }
         }
-    }
-
-    fun stop(context: Context) {
-        if (state.busy || state.needsLogin || quickUseFlow.active == null) return
-        val client = activeClient ?: return
-        state = state.copy(busy = true, status = "结束中…", error = null)
-        viewModelScope.launch {
-            try {
-                quickUseFlow.stop { resNo, id ->
-                    withContext(Dispatchers.IO) { client.stop(resNo, id) }
-                }
-                activeClient = null
-                state = state.copy(activeDevice = null, status = "已结束接水")
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                reportFailure(context, "stop", e)
-            } finally {
-                state = state.copy(busy = false)
-            }
-        }
-    }
-
-    fun confirmPhysicalEnd() {
-        if (state.busy || state.error == null || quickUseFlow.active == null) return
-        quickUseFlow.confirmPhysicalEnd()
-        activeClient = null
-        if (state.needsLogin) api = null
-        state = state.copy(activeDevice = null, status = "", error = null)
     }
 
     fun setSortMode(context: Context, mode: WaterDeviceSortMode) {
-        if (deviceActionsBlocked) return
+        if (state.busy || state.sortMode == mode) return
         WaterDevices.setSortMode(context.applicationContext, mode)
         reloadDevices(context)
+        AppTelemetry.instance.waterSortChanged(mode)
     }
 
     fun saveCustomOrder(context: Context, resNos: List<String>) {
-        if (deviceActionsBlocked) return
+        if (state.busy) return
         WaterDevices.saveCustomOrder(context.applicationContext, resNos)
         reloadDevices(context)
     }
 
     fun removeDevice(context: Context, resNo: String) {
-        if (deviceActionsBlocked) return
+        if (state.busy) return
         WaterDevices.remove(context.applicationContext, resNo)
         reloadDevices(context)
-        if (state.deviceError?.resNo == resNo) state = state.copy(deviceError = null)
+        state = state.copy(
+            deviceError = state.deviceError?.takeUnless { it.resNo == resNo },
+            lastUnlockedResNo = state.lastUnlockedResNo?.takeUnless { it == resNo },
+        )
     }
 
     private fun reloadDevices(context: Context) {
@@ -446,18 +420,12 @@ class WaterViewModel : ViewModel() {
     }
 
     private fun adoptSession(context: Context, jar: Map<String, String>) {
-        val active = quickUseFlow.active
-        check(active == null || active.canRecoverWith(WaterSession.accountId(jar))) {
-            "请使用开始接水时的账号恢复登录"
-        }
         WaterSession.adopt(context.applicationContext, jar)
         installClient(jar)
-        if (active != null) activeClient = api
     }
 
     private fun installClient(jar: Map<String, String>) {
         api = WaterApi(MtopClient(LinkedHashMap(jar)))
-        apiAccountId = WaterSession.accountId(jar)
     }
 
     private suspend fun clientForAction(context: Context): WaterApi {
@@ -474,14 +442,13 @@ class WaterViewModel : ViewModel() {
     private fun reportFailure(context: Context, action: String, error: Exception, deviceError: DeviceError? = null) {
         val expired = error is MtopError && error.code == "FAIL_SYS_SESSION_EXPIRED"
         WaterDiag.log(context.applicationContext, action, if (error is MtopError) error.code else error.javaClass.simpleName)
-        if (expired && quickUseFlow.active == null) api = null
+        if (expired) api = null
         state = state.copy(
             loggedIn = state.loggedIn && !expired,
             needsLogin = state.needsLogin || expired,
             status = "",
             deviceError = deviceError,
             error = when {
-                expired && quickUseFlow.active != null -> "登录已过期，请使用原账号恢复登录，然后结束接水"
                 expired -> "登录已过期，请重新登录"
                 deviceError == null -> explain(error)
                 else -> null

@@ -12,6 +12,9 @@ import com.fktm.app.ble.BleLockClient
 import com.fktm.app.ble.BlePermissionException
 import com.fktm.app.ble.BleUnavailableException
 import com.fktm.app.credential.LockCredential
+import com.fktm.app.telemetry.AppTelemetry
+import com.fktm.app.telemetry.AppTelemetry.DoorMode
+import com.fktm.app.telemetry.AppTelemetry.DoorSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -96,7 +99,7 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
     @Volatile
     private var mvBusy = false
 
-    private fun mvUnlock(cred: LockCredential) {
+    private fun mvUnlock(cred: LockCredential, source: DoorSource) {
         if (mvBusy) return
         mvBusy = true
         mvHoldJob?.cancel()
@@ -137,6 +140,7 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
             } else {
                 UnlockState.Failure("${result.second}（${cost}ms）")
             }
+            AppTelemetry.instance.doorUnlockResult(DoorMode.MV, source, result.first)
             if (result.first) {
                 // 开锁成功：保活 10 秒再断（期间再点开锁直接复用连接）
                 mvHoldJob?.cancel()
@@ -250,10 +254,10 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** 开锁主流程：后台线程跑 GATT，不阻塞 UI。 */
-    fun unlock(cred: LockCredential) {
+    internal fun unlock(cred: LockCredential, source: DoorSource = DoorSource.LIST) {
         if (state == UnlockState.Working) return
         if (cred.isMv) {
-            mvUnlock(cred)
+            mvUnlock(cred, source)
             return
         }
         state = UnlockState.Working
@@ -269,6 +273,8 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
                 // 预热成功 → 直接复用（跳过连接 + 服务发现）；否则现场新建
                 client.ensureConnected(address = cred.address)
                 client.unlock(cred.activationKey)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: BlePermissionException) {
                 false to "缺少蓝牙权限，请授权后重试"
             } catch (e: BleDisabledException) {
@@ -288,6 +294,7 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
             } else {
                 UnlockState.Failure("${result.second}（${cost}ms）")
             }
+            AppTelemetry.instance.doorUnlockResult(DoorMode.VOC, source, result.first)
         }
     }
 
