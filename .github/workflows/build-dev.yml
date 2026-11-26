@@ -31,8 +31,17 @@ jobs:
         with:
           cache-disabled: true
 
-      - name: Install Android SDK components
-        run: sdkmanager 'platforms;android-36' "build-tools;${ANDROID_BUILD_TOOLS}"
+      - name: Verify runner Android SDK components
+        run: |
+          set -euo pipefail
+          sdk="${ANDROID_HOME:?Android SDK is not configured on the runner}"
+          build_tools="$sdk/build-tools/$ANDROID_BUILD_TOOLS"
+          for component in "$sdk/platforms/android-36/android.jar" "$build_tools/aapt" "$build_tools/apksigner"; do
+            if [[ ! -f "$component" ]]; then
+              echo "::error::Missing runner Android SDK component: $component"
+              exit 1
+            fi
+          done
 
       - name: Configure Release signing
         working-directory: fktm-android
