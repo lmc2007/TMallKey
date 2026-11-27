@@ -161,6 +161,14 @@ Actions → Release APK → Run workflow（`dry_run` 勾上则只构建、不发
 > tag 用 `v{versionName}` 而不是 versionCode。重跑同一个版本时，如果 tag 已经指向
 > **别的**提交，流程会拒绝执行 —— 那意味着这个版本可能已经发布过。
 
+### 撤回最新 Release
+
+在 Actions → **Withdraw Latest Release** → Run workflow 选择 `main`，填写 GitHub 当前 Latest 的完整 tag（例如 `v2.1.12`）。`dry_run` 默认勾选，运行日志会显示目标和可用的回退版本。取消勾选后再次运行即可正式撤回。
+
+工作流会从 `main` 的清单历史中选出仍公开且 APK 与清单匹配的旧版，先恢复 `update/stable.json`，再将目标 Release 转成草稿，并重新部署下载页。草稿保留 tag、发布说明和资产。Gradle 版本号继续作为下一次 Prepare Version Update 的起点。已经安装撤回版本的设备仍需安装 `versionCode` 更高的版本才能覆盖更新。
+
+如果目标与 GitHub Latest 或当前正式清单不匹配、旧版无法下载，或目标启用了不可变发布，流程会停止。如果清单已回退而转换草稿失败，可用同一 tag 重跑，继续完成撤回。
+
 ### 本地手动发布（不用 CI 的备选路径）
 
 1. 改 `fktm-android/app/build.gradle.kts` 的 `versionCode` / `versionName`；

@@ -1,0 +1,64 @@
+name: Withdraw Latest Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要撤回的 GitHub Latest tag（例如 v2.1.12）"
+        required: true
+        type: string
+      dry_run:
+        description: "仅检查目标与回退版本。取消勾选后执行撤回"
+        default: true
+        type: boolean
+
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  withdraw:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      deploy: ${{ steps.withdraw.outputs.deploy }}
+    steps:
+      - name: Require main branch
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::请在 main 分支运行撤回流程。"
+            exit 1
+          fi
+
+      - name: Checkout current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Withdraw latest release
+        id: withdraw
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          args=()
+          if [[ "$DRY_RUN" == "true" ]]; then
+            args+=(--dry-run)
+          fi
+          python3 .github/scripts/withdraw_release.py "${args[@]}" -- "$RELEASE_TAG"
+
+  landing:
+    needs: withdraw
+    # Also update Pages if main was pushed but the GitHub Release update failed.
+    if: ${{ !cancelled() && needs.withdraw.outputs.deploy == 'true' }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    uses: ./.github/workflows/deploy-pages.yml
