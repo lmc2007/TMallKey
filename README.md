@@ -190,6 +190,13 @@ TMallKey/
 │   ├── stable.json               当前版本、下载地址与 SHA-256
 │   └── changelogs/               每个版本的更新日志，按 versionCode 命名
 │
+├── lspatch-module/             免 root 同步模块（Xposed / LSPatch）
+│   └── dist/                     模块 APK（tmxy-cookie-dump）
+│
+├── tools/                      打包工具链
+│   ├── lspatch-v0.8.jar          JingMatrix fork（只有它有签名伪装 -l）
+│   └── build-lspatched-apk.sh    一键打天猫校园补丁版
+│
 ├── .github/                    发布流水线
 │   ├── workflows/                Prepare Version Update / Release APK
 │   └── scripts/                  清单校验与登记脚本
@@ -284,13 +291,18 @@ cd fktm-android
 #### 补丁版天猫校园（免 root，推荐）
 
 从 [发布](https://github.com/lmc2007/TMallKey/releases/latest) 下载
-**`tmcampus-5.0.0-lspatched.apk`**（天猫校园 · LSPatch 补丁版），
+**`tmcampus-5.8.6-lspatched.apk`**（天猫校园 · LSPatch 补丁版），
 或到[下载页](https://lmc2007.github.io/TMallKey/)点「下载补丁版天猫校园」。
+
+> **5.0 的补丁版已经开不了门了。** 天猫校园 5.8 起把 `activationKey` 改成服务端
+> AES-GCM 封装的密文下发，5.0 没有解密器，只能把密文当钥匙喂给门锁 —— BLE 校验不过。
+> 换成 5.8 的补丁版即可，TMallKey 侧不用任何改动（详见
+> [`lspatch-module/README.md`](lspatch-module/README.md)）。
 
 国内直连 GitHub 慢时用加速镜像（与 App 内「关于 → 镜像下载」是同一个地址）：
 
 ```
-https://gh-proxy.com/https://github.com/lmc2007/TMallKey/releases/latest/download/tmcampus-5.0.0-lspatched.apk
+https://gh-proxy.com/https://github.com/lmc2007/TMallKey/releases/latest/download/tmcampus-5.8.6-lspatched.apk
 ```
 
 **① 安装**
@@ -302,6 +314,10 @@ https://gh-proxy.com/https://github.com/lmc2007/TMallKey/releases/latest/downloa
 
 打开补丁版天猫校园，用手机号 + 验证码登录（与官方版同一账号），
 进入门锁页，**正常点一次「开锁」**，等门真的打开。
+
+> **第一次启动可能会闪退一次** —— 再点一次图标就好，不是没打成功。
+> 天猫校园自带 `appComponentFactory`，LSPatch 的存根首次启动时还没等到原包解压完。
+> 第二次启动就正常了，之后一直正常。
 
 只打开门锁页是不够的：钥匙（`activationKey`）不是列表接口下发的，
 而是点「开锁」时页面通过 `VocLockHelper.unlock(...)` 传给原生层的 ——
@@ -540,6 +556,9 @@ Kotlin 侧合计 **83** 项。协议层的任何改动，必须 Python 与 Kotli
 - **BLE 并发**：同一把锁可被两台设备同时连接（实测并发数 ≥ 2），
   但并发会显著拖慢链路建立（冷连接由约 2 s 劣化至约 7.6 s）。
   App 因此采用「退到后台即让出连接」的策略。
+- **补丁版必须 5.8 及以上**：5.8 起 `activationKey` 改成服务端 AES-GCM 密文下发，
+  5.0 没有 `VocSecretKeyDecryptor`，开锁必然失败（门锁本身没问题）。
+  每次天猫校园大版本更新都要重新打一次补丁包，见 [`lspatch-module/README.md`](lspatch-module/README.md)。
 - **平台**：目前仅提供 Android 实现。
 
 ---
@@ -585,6 +604,13 @@ root 只是「从官方版里读一次 cookie」的捷径，读完就不再需�
 TMallKey 本身不会 —— 它不注入、不 hook、不读取天猫校园进程。
 但免 root 取凭证需要装**补丁版天猫校园**（LSPatch 打包，与官方版同包名只能二选一），
 那是个可选步骤，不装也能用 root / adb 方式拿凭证。
+
+**5.0 的补丁版还能用吗？**
+不能，而且不是补丁坏了 —— 是天猫校园 5.8 起把门锁密钥改成**密文下发**（服务端
+AES-GCM 封装，App 内用 `App.getSecurityExtraData("voc_lock_secret_key")` 解），
+5.0 没有解密器，只能把密文当钥匙发给门锁，BLE 校验必然不过。
+装 `tmcampus-5.8.6-lspatched.apk` 覆盖即可，TMallKey 一行都不用改：
+模块挂在 `VocLockHelperV2.unlock`，拿到的本来就是解密后的明文钥匙。
 
 **凭证泄露会怎样？**
 `activationKey` 一旦泄露，配合门锁的 BLE 地址即可离线开门。这是本项目的核心风险，

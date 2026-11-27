@@ -21,6 +21,11 @@ on:
         required: false
         default: false
         type: boolean
+      tmall_original_url:
+        description: "（可选）天猫校园原版 APK 直链；留空则从 TMALL_SOURCE_RELEASE 的资产取"
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   group: release-${{ github.repository }}
@@ -244,39 +249,90 @@ jobs:
             echo "size=$size"
           } >> "$GITHUB_OUTPUT"
 
+      # 补丁版天猫校园 —— 跟着主包一起发，名字固定为 tmcampus-<版本>-lspatched.apk，
+      # 落地页与 README 都指向 releases/latest/download/ 下的这个名字。
+      #
+      # 三条硬约束（都踩过）：
+      #   1. 必须 LSPatch v0.8（JingMatrix fork）+ `-l 2`：官方 v0.6 没有签名伪装选项，
+      #      天猫校园里的阿里安全 SDK 查签名后直接闪退；
+      #   2. 必须用**同一个 LSPatch keystore**（内置）打包：签名指纹变了，老用户就得
+      #      卸载重装、登录态全丢。指纹钉在 EXPECTED_LSPATCH_CERT_SHA256 上；
+      #   3. 原版 APK 不入库（见 README 免责声明），从 Release 资产取，或用
+      #      workflow_dispatch 的 tmall_original_url 临时给个地址。
       - name: Patch 天猫校园 (LSPatch + tmxy 模块)
         id: tmallypatch
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # 原包资产所在的 Release。天猫校园大版本更新时：换这里的 tag + 上传新原包资产
-          TMALL_SOURCE_RELEASE: v1.0.6
-          LSPATCH_URL: https://github.com/JingMatrix/LSPatch/releases/download/v0.8/lspatch.jar
+          # 天猫校园版本：换版本时改这三行 + 上传对应原包资产
+          TMALL_VERSION: "5.8.6"
+          TMALL_SOURCE_RELEASE: tmall-source
+          TMALL_ORIGINAL_ASSET: tmcampus-5.8.6-original.apk
+          # 大版本更新时若手头只有临时链接，用 workflow_dispatch 的输入覆盖
+          TMALL_ORIGINAL_URL: ${{ inputs.tmall_original_url }}
+          # LSPatch v0.8（JingMatrix fork）。jar 已入库，下面是它的指纹；
+          # 仓库里没有时才回落到官方 release 下载。
+          LSPATCH_JAR: tools/lspatch-v0.8.jar
           LSPATCH_SHA256: b81094ac3d088849d9781e2678a87562936f8e0d78c4d136a9072dce40f72208
+          LSPATCH_URL: https://github.com/JingMatrix/LSPatch/releases/download/v0.8/lspatch.jar
+          # LSPatch 内置 keystore 的证书指纹 —— 决定「老用户能否覆盖安装」
+          EXPECTED_LSPATCH_CERT_SHA256: c081890cf2a1adf13e56d7b50a4f3d8edb35b7c46d6ccc732dd997b7e433be1d
         run: |
           set -euo pipefail
-          # 0) 从源码构建模块 APK（xposed-api jar 已入库 lspatch-module/app/libs/）
+
+          # 0) 模块 APK 从源码构建（xposed-api jar 已入库 lspatch-module/app/libs/）
           chmod +x lspatch-module/gradlew
           (cd lspatch-module && ./gradlew :app:assembleRelease --console=plain -q)
           MODULE_APK="$(find lspatch-module/app/build/outputs/apk/release -name '*.apk' | head -n 1)"
           [ -n "$MODULE_APK" ] || { echo "::error::模块 APK 构建失败"; exit 1; }
+          echo "模块：$MODULE_APK（$(stat -c%s "$MODULE_APK") 字节）"
 
-          # 1) LSPatch 必须 v0.8（JingMatrix fork，带 -l 签名伪装；官方 v0.6 没有该选项，补丁包必崩）
-          curl -fL --retry 3 -o lspatch.jar "$LSPATCH_URL"
-          echo "$LSPATCH_SHA256  lspatch.jar" | sha256sum -c -
+          # 1) LSPatch jar：优先用库里那份，指纹必须对得上
+          if [ -f "$LSPATCH_JAR" ]; then
+            echo "$LSPATCH_SHA256  $LSPATCH_JAR" | sha256sum -c - \
+              || { echo "::error::$LSPATCH_JAR 指纹不符，可能被换成了官方 v0.6（没有 -l）"; exit 1; }
+          else
+            curl -fL --retry 3 -o lspatch.jar "$LSPATCH_URL"
+            echo "$LSPATCH_SHA256  lspatch.jar" | sha256sum -c -
+            LSPATCH_JAR=lspatch.jar
+          fi
 
-          # 2) 天猫校园原包：从固定 Release 资产下载
-          gh release download "$TMALL_SOURCE_RELEASE"             --pattern 'tmcampus-5.0.0-original.apk' --output tmallcampus.apk --clobber
+          # 2) 原版 APK
+          if [ -n "${TMALL_ORIGINAL_URL:-}" ]; then
+            echo "从指定地址下载原包：$TMALL_ORIGINAL_URL"
+            curl -fL --retry 3 -o tmallcampus.apk "$TMALL_ORIGINAL_URL"
+          else
+            if ! gh release download "$TMALL_SOURCE_RELEASE" \
+              --pattern "$TMALL_ORIGINAL_ASSET" --output tmallcampus.apk --clobber; then
+              echo "::error::取不到原版天猫校园 APK：Release ${TMALL_SOURCE_RELEASE} 里没有 ${TMALL_ORIGINAL_ASSET}"
+              echo "::error::两种修法（二选一）：① 在该 Release 上传这个文件（推荐，之后每次发版自动复用）；② 重跑并在 tmall_original_url 填一个可直链下载的地址"
+              exit 1
+            fi
+          fi
 
-          # 3) 打补丁（-l 2 = 签名伪装，没有它阿里安全 SDK 查签名直接崩）
-          java -jar lspatch.jar tmallcampus.apk -m "$MODULE_APK" -l 2 --force -o dist/
-          PATCHED="$(find dist -maxdepth 1 -type f -name '*-lspatched.apk' | head -n 1)"
-          [ -n "$PATCHED" ] || { echo "::error::LSPatch 未产出补丁包"; exit 1; }
-          cp -f "$PATCHED" dist/tmcampus-5.0.0-lspatched.apk
+          # 3) 打补丁。别名固定 tmcampus-<原包版本>-lspatched.apk，供 README / 落地页直链
+          mkdir -p dist
+          java -Xmx4g -jar "$LSPATCH_JAR" tmallcampus.apk -m "$MODULE_APK" -l 2 --force -o dist/
+          PATCHED_RAW="$(find dist -maxdepth 1 -type f -name '*-lspatched.apk' | head -n 1)"
+          [ -n "$PATCHED_RAW" ] || { echo "::error::LSPatch 未产出补丁包"; exit 1; }
+          PATCHED_NAME="tmcampus-${TMALL_VERSION}-lspatched.apk"
+          PATCHED="dist/$PATCHED_NAME"
+          cp -f "$PATCHED_RAW" "$PATCHED"
+
+          # 4) 产物校验：签名伪装等级、内嵌原包/模块是否一致、包名版本是否被改、证书指纹
+          echo "::group::校验补丁包"
+          python3 .github/scripts/verify-lspatched-apk.py \
+            "$PATCHED" tmallcampus.apk "$MODULE_APK" \
+            --expect-package com.tmall.campus.and \
+            --expect-cert "$EXPECTED_LSPATCH_CERT_SHA256"
+          echo "::endgroup::"
+
           {
-            echo "PATCHED_APK=dist/tmcampus-5.0.0-lspatched.apk"
-            echo "PATCHED_NAME=tmcampus-5.0.0-lspatched.apk"
+            echo "PATCHED_APK=$PATCHED"
+            echo "PATCHED_NAME=$PATCHED_NAME"
+            echo "PATCHED_SHA256=$(sha256sum "$PATCHED" | awk '{print $1}')"
+            echo "TMALL_VERSION=${TMALL_VERSION}"
           } >> "$GITHUB_OUTPUT"
-          echo "补丁包就绪：dist/tmcampus-5.0.0-lspatched.apk（$(stat -c%s dist/tmcampus-5.0.0-lspatched.apk) 字节）"
+          echo "补丁包就绪：$PATCHED（$(stat -c%s "$PATCHED") 字节）"
 
       - name: Create or update GitHub release
         if: ${{ !inputs.dry_run }}
@@ -377,6 +433,9 @@ jobs:
           ASSET_URL: ${{ steps.meta.outputs.asset_url }}
           SHA256: ${{ steps.apk.outputs.sha256 }}
           SIZE: ${{ steps.apk.outputs.size }}
+          TMALL_VERSION: ${{ steps.tmallypatch.outputs.TMALL_VERSION }}
+          PATCHED_NAME: ${{ steps.tmallypatch.outputs.PATCHED_NAME }}
+          PATCHED_SHA256: ${{ steps.tmallypatch.outputs.PATCHED_SHA256 }}
         run: |
           {
             echo "## Release ${TAG:-（未解析出元信息）}"
@@ -388,6 +447,9 @@ jobs:
             echo "| APK 直链 | ${ASSET_URL:-?} |"
             echo "| SHA-256 | \`${SHA256:-?}\` |"
             echo "| 大小 | ${SIZE:-?} 字节 |"
+            echo "| 天猫校园补丁版 | ${PATCHED_NAME:-（未产出）} |"
+            echo "| 补丁版 SHA-256 | \`${PATCHED_SHA256:-?}\` |"
+            echo "| 天猫校园版本 | ${TMALL_VERSION:-?} |"
             echo "| dry-run | ${{ inputs.dry_run }} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
