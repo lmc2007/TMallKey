@@ -2,9 +2,18 @@
   "channel": "stable",
   "versionName": "2.1.11",
   "versionCode": 22,
-  "isReady": false,
+  "isReady": true,
   "releaseNotes": "GPT不给逆向,还得是大肥鱼肯干活",
-  "assets": [],
+  "releaseUrl": "https://github.com/lmc2007/TMallKey/releases/tag/v2.1.11",
+  "assets": [
+    {
+      "type": "universal-apk",
+      "platform": "android",
+      "url": "https://github.com/lmc2007/TMallKey/releases/download/v2.1.11/TMKey-2.1.11.apk",
+      "sha256": "79b6b2b28eaf5d80ae885f718db4c7747ceb66d19cc26fe446875d0bf5926989",
+      "size": 2432010
+    }
+  ],
   "changelogs": {
     "1": "# v1.0.0\n\n- 新增「检查更新」：6 个 GitHub 加速镜像 + 直连兜底，逐个回退；已挂的镜像下次自动排到队尾。\n- 新增陈旧镜像守卫：某个镜像返回的版本不比当前新时，继续扫其余源，而不是草率地报「已是最新」。\n- 新增应用内下载与安装：APK 落 `cache/updates/`，校验 ZIP 魔数与 sha256，同签名覆盖安装。\n- 更新日志随清单就近拉取（`update/changelogs/{versionCode}.changelog`）。\n- 说明：开锁全程依旧不联网，仅「检查更新」这一步需要网络。",
     "2": "# v1.0.1\n\n新增：\n- 应用内检查更新与下载安装\n\n更改：\n- README 补齐 MIT 许可证与 clone 指引\n\n其他：\n- 两阶段发布流水线（对标 yamibo-app）\n- Update README.md\n- 天猫校园宿舍 BLE 门禁「一点即开」独立 App\n- Initial commit",
@@ -25,7 +34,8 @@
     "17": "# v2.1.6\n\n新增：\n- simplify water unlock and expand Aptabase events",
     "18": "# v2.1.7\n\n新增：\n- add telemetry switch to About",
     "19": "# v2.1.8\n\n新增：\n- show changelogs for all skipped releases\n- add telemetry switch to About",
-    "20": "# v2.1.9\n\n1.尝试优化Shortcut快速开锁速度",
-    "21": "# v2.1.10\n\n1.尝试优化Shortcut快速开锁速度 \n2.新增门锁凭证分享功能,同宿舍可直接分享导入,无需重复抓取 \n 有其他需求欢迎提issue~"
+    "20": "# v2.1.9",
+    "21": "# v2.1.10\n\n1.尝试优化Shortcut快速开锁速度 \n2.新增门锁凭证分享功能,同宿舍可直接分享导入,无需重复抓取\n有其他需求欢迎提issue~",
+    "22": "# v2.1.11\n\nGPT不给逆向,还得是大肥鱼肯干活"
   }
 }
