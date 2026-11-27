@@ -1,0 +1,13 @@
+# v2.1.12
+
+v2.1.11
+
+修复:
+fix(android): warn about sharing campus sessions
+fix(lspatch): 适配天猫校园 5.8，模块升到 1.1
+
+新增:
+feat(android): optionally back up campus sessions
+
+其他:
+GPT不给逆向,还得是大肥鱼
