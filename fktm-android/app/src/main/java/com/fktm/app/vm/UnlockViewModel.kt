@@ -17,6 +17,8 @@ import com.fktm.app.credential.LockCredential
 import com.fktm.app.telemetry.AppTelemetry
 import com.fktm.app.telemetry.AppTelemetry.DoorMode
 import com.fktm.app.telemetry.AppTelemetry.DoorSource
+import com.fktm.app.water.WaterCookies
+import com.fktm.app.water.WaterSession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -119,7 +121,7 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
                 val jar = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     refreshSessionFromModule()
                     // ensure = 内存 → 加密存储：进程被杀后重开也能拿到会话
-                    com.fktm.app.water.WaterSession.ensure(getApplication())
+                    WaterSession.ensureCampusSession(getApplication())
                 }
                 val api = com.fktm.app.mv.MvLockApi(java.util.LinkedHashMap(jar))
                 // 预连接已就绪则 0ms 复用；否则现场建连
@@ -130,23 +132,27 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
                     api.fetchUnlockData(cred.address)
                 }
                 val resp = com.fktm.app.mv.MvBleClient.writeFrame(data.encryptData)
-                true to "开锁指令已写入${if (resp.isNotBlank()) "，锁回包 $resp" else ""}"
+                Result.success("开锁指令已写入${if (resp.isNotBlank()) "，锁回包 $resp" else ""}")
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: com.fktm.app.water.WaterSession.NotLoggedIn) {
-                false to "还没有登录态：用「root 抓取」一键导入（钥匙 + 登录态）"
             } catch (e: Exception) {
-                false to (e.message ?: e.javaClass.simpleName)
+                Result.failure(e)
             }
             val cost = System.currentTimeMillis() - started
             mvBusy = false
-            state = if (result.first) {
-                UnlockState.Success("${result.second}（${cost}ms）")
-            } else {
-                UnlockState.Failure("${result.second}（${cost}ms）")
-            }
-            AppTelemetry.instance.doorUnlockResult(DoorMode.MV, source, result.first)
-            if (result.first) {
+            state = result.fold(
+                onSuccess = { UnlockState.Success("$it（${cost}ms）") },
+                onFailure = { error ->
+                    val message = if (error is WaterSession.NotLoggedIn) {
+                        "当前未登录天猫校园账号,请通过root/修补版天猫校园获取登录态"
+                    } else {
+                        "${error.message ?: error.javaClass.simpleName}（${cost}ms）"
+                    }
+                    UnlockState.Failure(message)
+                },
+            )
+            AppTelemetry.instance.doorUnlockResult(DoorMode.MV, source, result.isSuccess)
+            if (result.isSuccess) {
                 // 开锁成功：保活 10 秒再断（期间再点开锁直接复用连接）
                 mvHoldJob?.cancel()
                 mvHoldJob = viewModelScope.launch {
@@ -188,12 +194,12 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }
 
-            val cur = com.fktm.app.water.WaterSession.cached()
+            val cur = WaterSession.cached()
             if (cur != null && cur["cookie2"] == res.cookies["cookie2"]) return@launch
             val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                com.fktm.app.water.WaterSession.campusProbeOk(res.cookies)
+                WaterSession.campusProbeOk(res.cookies)
             }
-            if (ok) com.fktm.app.water.WaterSession.adopt(getApplication(), res.cookies)
+            if (ok) WaterSession.adopt(getApplication(), res.cookies)
         }
     }
 
@@ -206,8 +212,8 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun refreshSessionFromModule() {
         val res = com.fktm.app.water.CookiePuller.pull() ?: return
         runCatching {
-            if (com.fktm.app.water.WaterSession.campusProbeOk(res.cookies)) {
-                com.fktm.app.water.WaterSession.adopt(getApplication(), res.cookies)
+            if (WaterSession.campusProbeOk(res.cookies)) {
+                WaterSession.adopt(getApplication(), res.cookies)
             }
         }
         // 门锁是离线数据，不管会话能不能用都先收
@@ -256,9 +262,16 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
     // An encrypted export can survive a configuration change while the document picker is open.
     private var preparedBackup: ByteArray? = null
 
-    internal suspend fun prepareCredentialBackup(password: String) {
+    internal fun canExportCredentialBackup(): Boolean =
+        locks.isNotEmpty() || WaterSession.cached()?.get("cookie2")?.isNotBlank() == true ||
+            WaterCookies.savedAt(fktmApp) > 0
+
+    internal suspend fun prepareCredentialBackup(password: String, includeCampusSession: Boolean) {
         preparedBackup = withBackupPassword(password) { chars ->
-            CredentialBackup.encode(store.loadForBackup(), chars)
+            val session = if (includeCampusSession) {
+                WaterCookies.forStorage(WaterSession.ensureCampusSession(fktmApp))
+            } else null
+            CredentialBackup.encode(store.loadForBackup(), chars, session)
         }
     }
 
@@ -274,16 +287,22 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    internal data class BackupRestore(val added: Int, val skipped: Int)
+    internal enum class SessionRestore { NOT_INCLUDED, RESTORED, FAILED }
+    internal data class BackupRestore(val added: Int, val skipped: Int, val session: SessionRestore)
 
     internal suspend fun restoreCredentialBackup(source: Uri, password: String): BackupRestore {
         val result = withBackupPassword(password) { chars ->
             val input = fktmApp.contentResolver.openInputStream(source)
                 ?: throw IOException("Cannot open backup file")
             val data = input.use(CredentialBackup::read)
-            val locks = CredentialBackup.decode(data, chars)
-            val added = store.restoreBackup(locks)
-            BackupRestore(added, locks.size - added)
+            val backup = CredentialBackup.decode(data, chars)
+            val added = if (backup.locks.isEmpty()) 0 else store.restoreBackup(backup.locks)
+            val session = when {
+                backup.campusSession == null -> SessionRestore.NOT_INCLUDED
+                WaterSession.restoreFromBackup(fktmApp, backup.campusSession) -> SessionRestore.RESTORED
+                else -> SessionRestore.FAILED
+            }
+            BackupRestore(added, backup.locks.size - added, session)
         }
         refresh()
         return result

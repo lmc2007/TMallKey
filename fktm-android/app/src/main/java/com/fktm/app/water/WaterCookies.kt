@@ -50,13 +50,15 @@ object WaterCookies {
         "_samesite_flag_", "cancelledSubSites", "APLUS_LS_KEY",
     )
 
-    fun save(context: Context, jar: Map<String, String>) {
-        val kept = jar.filterKeys { it !in DENY }
+    internal fun forStorage(jar: Map<String, String>): Map<String, String> = jar.filterKeys { it !in DENY }
+
+    fun save(context: Context, jar: Map<String, String>, synchronous: Boolean = false): Boolean {
+        val kept = forStorage(jar)
         if (kept.isEmpty()) {
             Log.w(TAG, "water cookies: nothing to save")
-            return
+            return false
         }
-        runCatching {
+        return runCatching {
             val payload = JSONObject().apply {
                 kept.forEach { (k, v) -> put(k, v) }
             }.toString()
@@ -64,12 +66,20 @@ object WaterCookies {
             cipher.init(Cipher.ENCRYPT_MODE, secretKey())
             val ct = cipher.doFinal(payload.toByteArray(Charsets.UTF_8))
             val blob = cipher.iv + ct
-            context.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit()
+            val editor = context.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit()
                 .putString(KEY_CIPHERTEXT, Base64.encodeToString(blob, Base64.NO_WRAP))
                 .putLong(KEY_SAVED_AT, System.currentTimeMillis())
-                .apply()
+            if (synchronous) {
+                if (!editor.commit()) return false
+            } else {
+                editor.apply()
+            }
             Log.d(TAG, "water cookies: saved ${kept.size} ${kept.keys.sorted()}")
-        }.onFailure { Log.w(TAG, "water cookies: save failed", it) }
+            true
+        }.getOrElse {
+            Log.w(TAG, "water cookies: save failed", it)
+            false
+        }
     }
 
     fun load(context: Context): Map<String, String>? {

@@ -57,6 +57,7 @@ object WaterSession {
     fun cached(): Map<String, String>? = cache
 
     /** 登录完成后由 UI 调用：写内存 + 加密落盘。 */
+    @Synchronized
     fun adopt(context: Context, jar: Map<String, String>) {
         appContextForDiag = context.applicationContext
         val map = LinkedHashMap(jar)
@@ -65,6 +66,18 @@ object WaterSession {
         importedAt = System.currentTimeMillis()
     }
 
+    /** Save the restored session before making it available to MV and drinking-water actions. */
+    @Synchronized
+    internal fun restoreFromBackup(context: Context, jar: Map<String, String>): Boolean {
+        val map = WaterCookies.forStorage(jar)
+        if (!WaterCookies.save(context, map, synchronous = true)) return false
+        appContextForDiag = context.applicationContext
+        cache = LinkedHashMap(map)
+        importedAt = System.currentTimeMillis()
+        return true
+    }
+
+    @Synchronized
     fun clear(context: Context) {
         cache = null
         WaterCookies.clear(context)
@@ -75,6 +88,7 @@ object WaterSession {
      *
      * 没有就抛 [NotLoggedIn]，由 UI 引导去「导入」—— 不做静默兜底。
      */
+    @Synchronized
     fun ensure(context: Context): Map<String, String> {
         appContextForDiag = context.applicationContext
         cache?.let { if (it.isNotEmpty()) return it }
@@ -219,6 +233,12 @@ object WaterSession {
         } finally {
             runCatching { tmp.delete() }
         }
+    }
+
+    internal fun ensureCampusSession(context: Context): Map<String, String> {
+        val jar = ensure(context)
+        if (jar["cookie2"].isNullOrBlank()) throw NotLoggedIn()
+        return jar
     }
 
     /** 登录态不存在 / 已被清掉。 */

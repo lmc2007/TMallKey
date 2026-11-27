@@ -1,6 +1,7 @@
 package com.fktm.app.credential
 
 import org.json.JSONException
+import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.security.SecureRandom
@@ -17,10 +18,12 @@ internal object CredentialBackup {
     const val MIN_PASSWORD_LENGTH = 12
     const val MAX_FILE_BYTES = 1_048_576
 
-    // V1: eight magic bytes, one version byte, 16-byte salt, 12-byte nonce, ciphertext + tag.
-    // The entire header is authenticated. V1 fixes the KDF cost so a file cannot supply it.
+    // Eight magic bytes, one version byte, 16-byte salt, 12-byte nonce, ciphertext + tag.
+    // Both versions authenticate the header and use a fixed KDF cost. V1 is a lock array;
+    // V2 wraps the lock array and campus session in an object.
     private val magic = "TMKEYBAK".toByteArray(Charsets.US_ASCII)
-    private const val VERSION = 1
+    private const val LOCKS_VERSION: Byte = 1
+    private const val SESSION_VERSION: Byte = 2
     private const val SALT_BYTES = 16
     private const val NONCE_BYTES = 12
     private const val TAG_BYTES = 16
@@ -38,26 +41,38 @@ internal object CredentialBackup {
     class InvalidCredentials : Error()
     class AuthenticationFailed : Error()
 
-    fun encode(locks: List<LockCredential>, password: CharArray): ByteArray {
+    class Contents(val locks: List<LockCredential>, val campusSession: Map<String, String>? = null)
+
+    fun encode(
+        locks: List<LockCredential>,
+        password: CharArray,
+        campusSession: Map<String, String>? = null,
+    ): ByteArray {
         require(password.size >= MIN_PASSWORD_LENGTH)
-        validate(locks)
-        val plain = LockCredentialJson.encode(locks).toByteArray(Charsets.UTF_8)
+        validate(Contents(locks, campusSession))
+        val version = if (campusSession == null) LOCKS_VERSION else SESSION_VERSION
+        val json = if (campusSession == null) LockCredentialJson.encode(locks) else JSONObject()
+            .put("locks", LockCredentialJson.toArray(locks))
+            .put("campusSession", JSONObject(campusSession))
+            .toString()
+        val plain = json.toByteArray(Charsets.UTF_8)
         try {
             if (plain.size > MAX_FILE_BYTES - headerBytes - TAG_BYTES) throw InvalidFile()
             val salt = ByteArray(SALT_BYTES).also(random::nextBytes)
             val nonce = ByteArray(NONCE_BYTES).also(random::nextBytes)
-            val header = magic + byteArrayOf(VERSION.toByte()) + salt + nonce
+            val header = magic + byteArrayOf(version) + salt + nonce
             return header + cipher(Cipher.ENCRYPT_MODE, password, salt, nonce, header).doFinal(plain)
         } finally {
             plain.fill(0)
         }
     }
 
-    fun decode(file: ByteArray, password: CharArray): List<LockCredential> {
+    fun decode(file: ByteArray, password: CharArray): Contents {
         if (file.size !in (magic.size + 1)..MAX_FILE_BYTES ||
             !file.copyOfRange(0, magic.size).contentEquals(magic)
         ) throw InvalidFile()
-        if (file[magic.size] != VERSION.toByte()) throw UnsupportedVersion()
+        val version = file[magic.size]
+        if (version != LOCKS_VERSION && version != SESSION_VERSION) throw UnsupportedVersion()
         if (file.size <= headerBytes + TAG_BYTES) throw InvalidFile()
         val cipher = cipher(
             Cipher.DECRYPT_MODE,
@@ -72,7 +87,17 @@ internal object CredentialBackup {
             throw AuthenticationFailed()
         }
         return try {
-            LockCredentialJson.decode(plain.toString(Charsets.UTF_8)).also(::validate)
+            val json = plain.toString(Charsets.UTF_8)
+            val contents = if (version == LOCKS_VERSION) Contents(LockCredentialJson.decode(json)) else {
+                val root = JSONObject(json)
+                val session = root.getJSONObject("campusSession")
+                val cookies = linkedMapOf<String, String>()
+                session.keys().forEach { name ->
+                    cookies[name] = session.get(name) as? String ?: throw InvalidCredentials()
+                }
+                Contents(LockCredentialJson.decode(root.getJSONArray("locks")), cookies)
+            }
+            contents.also(::validate)
         } catch (_: JSONException) {
             throw InvalidCredentials()
         } finally {
@@ -97,9 +122,11 @@ internal object CredentialBackup {
         return existing + imported.filter { seen.add(it.address.uppercase(Locale.ROOT)) }
     }
 
-    private fun validate(locks: List<LockCredential>) {
-        if (locks.isEmpty()) throw InvalidCredentials()
-        for (lock in locks) {
+    private fun validate(contents: Contents) {
+        val session = contents.campusSession
+        if (contents.locks.isEmpty() && session == null) throw InvalidCredentials()
+        if (session != null && session["cookie2"].isNullOrBlank()) throw InvalidCredentials()
+        for (lock in contents.locks) {
             val validKey = when (lock.type) {
                 LockCredential.TYPE_VOC -> vocKey.matches(lock.activationKey)
                 LockCredential.TYPE_MV -> lock.activationKey.isEmpty()

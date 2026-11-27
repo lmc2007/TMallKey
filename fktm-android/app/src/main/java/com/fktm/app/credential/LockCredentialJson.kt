@@ -5,7 +5,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 internal object LockCredentialJson {
-    fun encode(locks: List<LockCredential>): String = JSONArray().apply {
+    fun encode(locks: List<LockCredential>): String = toArray(locks).toString()
+
+    fun toArray(locks: List<LockCredential>): JSONArray = JSONArray().apply {
         locks.forEach { lock ->
             put(JSONObject().apply {
                 put("name", lock.name)
@@ -16,11 +18,12 @@ internal object LockCredentialJson {
                 put("type", lock.type)
             })
         }
-    }.toString()
+    }
 
-    fun decode(json: String): List<LockCredential> {
-        val array = JSONArray(json)
-        return List(array.length()) { index ->
+    fun decode(json: String): List<LockCredential> = decode(JSONArray(json))
+
+    fun decode(array: JSONArray): List<LockCredential> =
+        List(array.length()) { index ->
             val lock = array.getJSONObject(index)
             LockCredential(
                 name = lock.optString("name", "宿舍门"),
@@ -31,5 +34,4 @@ internal object LockCredentialJson {
                 type = lock.optString("type", LockCredential.TYPE_VOC),
             )
         }
-    }
 }

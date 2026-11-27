@@ -19,9 +19,41 @@ class CredentialBackupTest {
 
     @Test fun `encrypted backup round trips both lock types and preserves their order`() {
         val file = CredentialBackup.encode(listOf(mv, voc), password)
-        assertEquals(listOf(mv, voc), CredentialBackup.decode(file, password))
+        val restored = CredentialBackup.decode(file, password)
+        assertEquals(listOf(mv, voc), restored.locks)
+        assertEquals(null, restored.campusSession)
+        assertEquals(1, file[8].toInt())
         assertFalse(file.toString(Charsets.UTF_8).contains(voc.activationKey))
         assertFalse(file.contentEquals(CredentialBackup.encode(listOf(mv, voc), password)))
+    }
+
+    @Test fun `encrypted backup round trips the optional campus session with locks`() {
+        val session = linkedMapOf("cookie2" to "synthetic-session-cookie", "munb" to "synthetic-account")
+        val file = CredentialBackup.encode(listOf(mv), password, session)
+        val restored = CredentialBackup.decode(file, password)
+        assertEquals(2, file[8].toInt())
+        assertEquals(listOf(mv), restored.locks)
+        assertEquals(session, restored.campusSession)
+        assertFalse(file.toString(Charsets.UTF_8).contains("synthetic-session-cookie"))
+        assertThrows(CredentialBackup.AuthenticationFailed::class.java) {
+            CredentialBackup.decode(file, "incorrect-password".toCharArray())
+        }
+    }
+
+    @Test fun `session can be restored without a lock and an empty backup is rejected`() {
+        val session = mapOf("cookie2" to "synthetic-session-cookie")
+        val restored = CredentialBackup.decode(CredentialBackup.encode(emptyList(), password, session), password)
+        assertEquals(emptyList<LockCredential>(), restored.locks)
+        assertEquals(session, restored.campusSession)
+        assertThrows(CredentialBackup.InvalidCredentials::class.java) {
+            CredentialBackup.encode(emptyList(), password)
+        }
+    }
+
+    @Test fun `incomplete campus sessions are rejected before export`() {
+        assertThrows(CredentialBackup.InvalidCredentials::class.java) {
+            CredentialBackup.encode(listOf(mv), password, mapOf("munb" to "synthetic-account"))
+        }
     }
 
     @Test fun `incorrect password or modified ciphertext cannot be restored`() {
@@ -44,7 +76,7 @@ class CredentialBackupTest {
             CredentialBackup.decode(file.copyOf(8), password)
         }
         // Format magic is eight bytes, followed by the version byte.
-        file[8] = 2
+        file[8] = 127
         assertThrows(CredentialBackup.UnsupportedVersion::class.java) {
             CredentialBackup.decode(file, password)
         }
