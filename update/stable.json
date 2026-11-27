@@ -1,17 +1,17 @@
 {
   "channel": "stable",
-  "versionName": "2.1.12",
-  "versionCode": 23,
+  "versionName": "2.1.10",
+  "versionCode": 21,
   "isReady": true,
-  "releaseNotes": "v2.1.11",
-  "releaseUrl": "https://github.com/lmc2007/TMallKey/releases/tag/v2.1.12",
+  "releaseNotes": "1.尝试优化Shortcut快速开锁速度",
+  "releaseUrl": "https://github.com/lmc2007/TMallKey/releases/tag/v2.1.10",
   "assets": [
     {
       "type": "universal-apk",
       "platform": "android",
-      "url": "https://github.com/lmc2007/TMallKey/releases/download/v2.1.12/TMKey-2.1.12.apk",
-      "sha256": "0cf707e40fd7d03e3be878be829898830ef88bdc5db56b4000da4b27505091f6",
-      "size": 2432010
+      "url": "https://github.com/lmc2007/TMallKey/releases/download/v2.1.10/TMKey-2.1.10.apk",
+      "sha256": "3561a3d17615e3f4b7273409170175b4d738ca3b34a96b55c784e49572897b90",
+      "size": 2424358
     }
   ],
   "changelogs": {
@@ -34,9 +34,7 @@
     "17": "# v2.1.6\n\n新增：\n- simplify water unlock and expand Aptabase events",
     "18": "# v2.1.7\n\n新增：\n- add telemetry switch to About",
     "19": "# v2.1.8\n\n新增：\n- show changelogs for all skipped releases\n- add telemetry switch to About",
-    "20": "# v2.1.9",
-    "21": "# v2.1.10\n\n1.尝试优化Shortcut快速开锁速度 \n2.新增门锁凭证分享功能,同宿舍可直接分享导入,无需重复抓取\n有其他需求欢迎提issue~",
-    "22": "",
-    "23": "# v2.1.12\n\n\n\n修复:\nfix(android): warn about sharing campus sessions\nfix(lspatch): 适配天猫校园 5.8，模块升到 1.1\n\n新增:\nfeat(android): optionally back up campus sessions\n\n其他:\nGPT不给逆向,还得是大肥鱼"
+    "20": "# v2.1.9\n\n1.尝试优化Shortcut快速开锁速度",
+    "21": "# v2.1.10\n\n1.尝试优化Shortcut快速开锁速度 \n2.新增门锁凭证分享功能,同宿舍可直接分享导入,无需重复抓取 \n 有其他需求欢迎提issue~"
   }
 }
