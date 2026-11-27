@@ -60,10 +60,10 @@ object UpdateSources {
     /**
      * 补丁版天猫校园的资产名。
      *
-     * 发布流水线固定产出这个名字（见 `.github/workflows/release.yml` 的
-     * 「Patch 天猫校园」步骤），每次发版都挂在同一个 release 下。
+     * 文件名包含天猫校园原包版本，需与 `.github/workflows/release.yml` 的
+     * 「Patch 天猫校园」步骤中的 `TMALL_VERSION` 同步。
      */
-    const val LSPATCH_ASSET = "tmcampus-5.0.0-lspatched.apk"
+    const val LSPATCH_ASSET = "tmcampus-5.8.6-lspatched.apk"
 
     /** Releases 最新页（App 本体与补丁版都在这里）。 */
     const val RELEASES_LATEST_URL = "https://github.com/lmc2007/TMallKey/releases/latest"
@@ -72,7 +72,7 @@ object UpdateSources {
      * 补丁版直连地址。
      *
      * `releases/latest/download/<asset>` 由 GitHub 解析到最新 release，
-     * 所以发新版本后这里不用改。
+     * TMallKey 发版时无需更改此地址，天猫校园原包升级时需同步资产名。
      */
     val LSPATCH_DIRECT_URL: String get() = "$RELEASES_LATEST_URL/download/$LSPATCH_ASSET"
 
