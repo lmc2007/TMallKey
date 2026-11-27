@@ -159,20 +159,16 @@ def classify(subject: str):
     return section, text
 
 
-def collect_changelog() -> dict:
-    """把上一次发版以来的提交整理成分节要点。
+def collect_changelog(previous_public_version: str | None = None) -> dict:
+    """从上一次发版开始整理，撤回后从仍公开的版本开始。"""
+    release_pattern = "^release: 发布"
+    if previous_public_version:
+        release_pattern += rf" v{re.escape(previous_public_version)}( |$)"
 
-    基准 = 最近一条 `release: 发布 ...` 提交；找不到时回退为最近 40 条非 merge 提交。
-    """
-    base_result = subprocess.run(
-        ["git", "log", "-1", "--format=%H", "--grep=^release: 发布", "HEAD"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    base = base_result.stdout.strip()
+    base = git("log", "-1", "--format=%H", "--extended-regexp", f"--grep={release_pattern}", "HEAD").stdout.strip()
+    if not base and previous_public_version:
+        base = git("rev-parse", "--verify", "--quiet", f"refs/tags/v{previous_public_version}^{{commit}}",
+                   check=False).stdout.strip()
     if base:
         commits = git("log", f"{base}..HEAD", "--no-merges", "--format=%s").stdout
     else:
@@ -227,7 +223,7 @@ def normalize_changelog_extra(extra: str) -> str:
     return re.sub(r"(\\+)n", expand, extra).strip()
 
 
-def build_changelog(version_name: str, mode: str, extra: str) -> tuple:
+def build_changelog(version_name: str, mode: str, extra: str, previous_public_version: str | None = None) -> tuple:
     extra = normalize_changelog_extra(extra)
     if mode == "manual":
         if not extra:
@@ -236,7 +232,7 @@ def build_changelog(version_name: str, mode: str, extra: str) -> tuple:
         default_notes = extra.splitlines()[0].lstrip("-* ").strip()
         return body, default_notes
 
-    sections = collect_changelog()
+    sections = collect_changelog(previous_public_version)
     if extra:
         for line in extra.splitlines():
             item = line.strip().lstrip("-* ").strip()
@@ -344,11 +340,25 @@ def main() -> None:
         fail("工作区不干净；workflow 检出的仓库应为干净状态，请检查是否有并发运行")
 
     manifest = load_manifest(MANIFEST_FILE)
-    if int(manifest.get("versionCode") or 0) != current_code:
-        fail(
-            f"清单 versionCode({manifest.get('versionCode')}) 与 build.gradle.kts({current_code}) 不一致；"
-            "请先人工对齐再发版"
-        )
+    previous_public_version = None
+    manifest_code = manifest.get("versionCode")
+    if manifest_code != current_code:
+        # 撤回只恢复公开清单。Gradle 保留已分配的版本号，以便覆盖已安装撤回版的设备。
+        manifest_name = manifest.get("versionName")
+        manifest_path = MANIFEST_FILE.relative_to(ROOT).as_posix()
+        subject = git("log", "-1", "--format=%s", "--", manifest_path).stdout.strip()
+        if not (
+            type(manifest_code) is int and 0 < manifest_code < current_code
+            and manifest.get("isReady") is True and manifest.get("assets")
+            and isinstance(manifest_name, str) and VERSION_NAME_PATTERN.fullmatch(manifest_name)
+            and re.fullmatch(r"release: 撤回 v[0-9]+\.[0-9]+\.[0-9]+", subject)
+        ):
+            fail(
+                f"清单 versionCode({manifest_code}) 与 build.gradle.kts({current_code}) 不一致；"
+                "请先人工对齐再发版"
+            )
+        previous_public_version = manifest_name
+        print(f"::notice::清单已撤回到 v{manifest_name} ({manifest_code})，新版本继续从 Gradle 的 {current_code} 递增。")
     if manifest.get("isReady") is True:
         print(
             f"::notice::{MANIFEST_FILE.relative_to(ROOT)} 当前 isReady=true（上一版已发布），"
@@ -356,7 +366,7 @@ def main() -> None:
             "等 Release APK 跑完才恢复可下载。"
         )
 
-    changelog_body, default_notes = build_changelog(version_name, mode, extra)
+    changelog_body, default_notes = build_changelog(version_name, mode, extra, previous_public_version)
     final_release_notes = (release_notes or default_notes).strip()
     if not final_release_notes:
         fail("releaseNotes 为空；请填写 release_notes 或提供更新内容")
