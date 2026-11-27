@@ -144,6 +144,13 @@ internal fun CredentialBackupActions(vm: UnlockViewModel, onRestored: () -> Unit
                             Checkbox(checked = includeCampusSession, onCheckedChange = null, enabled = !busy)
                             Text("包含天猫校园登录态")
                         }
+                        if (includeCampusSession) {
+                            Text(
+                                "请注意,将您的登录态分享给别人意味着别人可以使用您的账号接水,这可能产生消费",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
                     }
                     if (busy) Text("正在处理…")
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
