@@ -422,19 +422,30 @@ class Hook : IXposedHookLoadPackage {
         val jar = linkedMapOf<String, String>()
         // cookie2 有多条（.taobao.com 与 .confong.cn），CM 身份只认 confong 那条，
         // 所以单独记下来最后写，避免被后面的 taobao 域覆盖。
+        //
+        // 5.8 起校园 H5 搬到 biz.confong.cn，而那条 cookie2 的 Path 是
+        // /app/tmall-xiaoyuan/campus-dormitory-m —— CookieManager 按路径匹配，
+        // 只查 https://biz.confong.cn/ 是**拿不到**它的（拿到的会是 taobao 那条）。
+        // 所以必须带完整宿舍页路径去查，并且优先级最高。
+        var dormCookie2: String? = null
         var confongCookie2: String? = null
         for (u in HOSTS) {
             val raw = runCatching { cm.getCookie(u) }.getOrNull() ?: continue
             val isConfong = u.contains("confong", ignoreCase = true)
+            val isDorm = u.contains("campus-dormitory", ignoreCase = true)
             for (part in raw.split(';')) {
                 val k = part.substringBefore('=', "").trim()
                 if (k.isEmpty()) continue
                 val v = part.substringAfter('=', "").trim()
-                if (k == "cookie2" && isConfong) confongCookie2 = v
+                if (k == "cookie2" && isConfong) {
+                    confongCookie2 = v
+                    if (isDorm) dormCookie2 = v
+                    probeLog("cookie2 from $u")
+                }
                 jar[k] = v
             }
         }
-        confongCookie2?.let { jar["cookie2"] = it }
+        (dormCookie2 ?: confongCookie2)?.let { jar["cookie2"] = it }
         // 没登录就别发（匿名也有 cookie2，容易误判）
         if (jar["unb"].isNullOrBlank() && jar["munb"].isNullOrBlank()) return null
         return jar
@@ -555,6 +566,10 @@ class Hook : IXposedHookLoadPackage {
         )
 
         private val HOSTS = listOf(
+            // 5.8 起的校园宿舍页；cookie2 的 Path 就是这个前缀，必须带全路径查
+            "https://biz.confong.cn/app/tmall-xiaoyuan/campus-dormitory-m/home",
+            // 5.8 及更早的校园域
+            "https://biz.confong.cn",
             "https://share.confong.cn",
             "https://www.taobao.com",
             "https://h5api.m.taobao.com",

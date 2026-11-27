@@ -92,6 +92,8 @@ lspatch-module/local.properties
 lspatch-module/app/libs/
 # dist 里的模块 APK 是要分发的产物，入库；只排除补丁包 out/
 !lspatch-module/dist/
+# 目录被放行还不够：`*.apk` 仍然会匹配里面的文件，要再显式放行一层
+!lspatch-module/dist/*.apk
 
 # reverse 工程构建产物
 reverse/**/target/
